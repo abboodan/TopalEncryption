@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Topal</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img src="logo.svg" alt="" width="36" height="36">
+      <div>
+        <h1>Topal</h1>
+        <p>Password-protect any file or folder</p>
+      </div>
+    </div>
+    <div class="segmented" role="tablist" aria-label="Mode">
+      <button id="mode-encrypt" role="tab" aria-selected="true">Encrypt</button>
+      <button id="mode-decrypt" role="tab" aria-selected="false">Decrypt</button>
+    </div>
+  </header>
+
+  <main>
+    <section id="setup">
+      <div id="drop" class="drop">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>
+        <p id="drop-title" class="drop-title">Drop files or folders here</p>
+        <p class="drop-sub">or</p>
+        <div class="row">
+          <button id="add-files" class="ghost">Add files</button>
+          <button id="add-folders" class="ghost">Add folder</button>
+        </div>
+      </div>
+
+      <div id="selection" hidden>
+        <div class="selection-head">
+          <span id="scan-summary"></span>
+          <button id="clear" class="link">Clear</button>
+        </div>
+        <ul id="paths"></ul>
+        <p id="scan-warnings" class="note warn" hidden></p>
+      </div>
+
+      <label class="field">
+        <span>Password</span>
+        <div class="password">
+          <input id="password" type="password" autocomplete="off" spellcheck="false">
+          <button id="toggle-password" class="link" type="button">Show</button>
+        </div>
+      </label>
+      <div id="strength" class="strength" hidden>
+        <div class="meter"><div id="strength-bar"></div></div>
+        <span id="strength-label"></span>
+      </div>
+
+      <label id="confirm-field" class="field">
+        <span>Repeat password</span>
+        <input id="confirm" type="password" autocomplete="off" spellcheck="false">
+      </label>
+
+      <label class="check">
+        <input id="delete-source" type="checkbox">
+        <span>
+          <strong id="delete-label"></strong>
+          <small id="delete-note"></small>
+        </span>
+      </label>
+
+      <p id="no-recovery" class="note">
+        There is no password recovery. If you forget the password, the files cannot be opened by anyone.
+      </p>
+
+      <p id="error" class="note error" hidden></p>
+      <button id="start" class="primary" disabled></button>
+    </section>
+
+    <section id="working" hidden>
+      <h2 id="working-title"></h2>
+      <div class="progress"><div id="progress-bar"></div></div>
+      <div class="stats">
+        <span id="progress-percent">0%</span>
+        <span id="progress-detail"></span>
+      </div>
+      <button id="cancel" class="ghost">Cancel</button>
+    </section>
+
+    <section id="result" hidden>
+      <h2 id="result-title"></h2>
+      <div class="tiles">
+        <div class="tile"><strong id="result-done">0</strong><span id="result-done-label"></span></div>
+        <div class="tile"><strong id="result-skipped">0</strong><span>skipped</span></div>
+        <div class="tile"><strong id="result-failed">0</strong><span>failed</span></div>
+      </div>
+      <p id="result-note" class="note" hidden></p>
+      <ul id="failures" hidden></ul>
+      <button id="again" class="primary">Done</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
