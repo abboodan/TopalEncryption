@@ -1,0 +1,19 @@
+[package]
+name = "topal"
+description = "Encrypt files and whole folders with a password"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+topal-core = { path = "../core" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+indicatif = "0.17"
+rpassword = "7"
+zeroize = "1"
+
+# Not `topal`: on Windows that would collide with the desktop app's `Topal.exe`.
+[[bin]]
+name = "topal-cli"
+path = "src/main.rs"
