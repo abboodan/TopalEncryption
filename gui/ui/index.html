@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" dir="ltr">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -12,54 +12,89 @@
       <img src="logo.svg" alt="" width="36" height="36">
       <div>
         <h1>Topal Encryption</h1>
-        <p>Password-protect any file or folder</p>
+        <p data-i18n="tagline"></p>
       </div>
     </div>
-    <div class="segmented" role="tablist" aria-label="Mode">
-      <button id="mode-encrypt" role="tab" aria-selected="true">Encrypt</button>
-      <button id="mode-decrypt" role="tab" aria-selected="false">Decrypt</button>
+    <div class="header-actions">
+      <button id="open-recovery" class="chip" type="button">
+        <span id="recovery-dot" class="dot"></span>
+        <span data-i18n="recovery.button"></span>
+      </button>
+      <button id="language" class="chip" type="button"></button>
     </div>
   </header>
 
+  <nav class="segmented" role="tablist">
+    <button id="mode-encrypt" role="tab" data-i18n="encrypt.verb"></button>
+    <button id="mode-decrypt" role="tab" data-i18n="decrypt.verb"></button>
+    <button id="mode-verify" role="tab" data-i18n="verify.verb"></button>
+    <button id="mode-change" role="tab" data-i18n="change.verb"></button>
+  </nav>
+
   <main>
     <section id="setup">
+      <p id="mode-hint" class="note"></p>
+
       <div id="drop" class="drop">
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7 9m5-5 5 5M5 16v2a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-2"/></svg>
-        <p id="drop-title" class="drop-title">Drop files or folders here</p>
-        <p class="drop-sub">or</p>
+        <p id="drop-title" class="drop-title"></p>
+        <p class="drop-sub" data-i18n="drop.or"></p>
         <div class="row">
-          <button id="add-files" class="ghost">Add files</button>
-          <button id="add-folders" class="ghost">Add folder</button>
+          <button id="add-files" class="ghost" data-i18n="drop.addFiles"></button>
+          <button id="add-folders" class="ghost" data-i18n="drop.addFolder"></button>
         </div>
       </div>
 
       <div id="selection" hidden>
         <div class="selection-head">
           <span id="scan-summary"></span>
-          <button id="clear" class="link">Clear</button>
+          <button id="clear" class="link" data-i18n="selection.clear"></button>
         </div>
         <ul id="paths"></ul>
         <p id="scan-warnings" class="note warn" hidden></p>
       </div>
 
-      <label class="field">
-        <span>Password</span>
-        <div class="password">
-          <input id="password" type="password" autocomplete="off" spellcheck="false">
-          <button id="toggle-password" class="link" type="button">Show</button>
+      <!-- Opens existing files: decrypt, verify, change password. -->
+      <div id="unlock-group" class="group">
+        <div class="field">
+          <span class="field-head">
+            <label id="unlock-label" for="unlock"></label>
+            <button id="toggle-unlock-kind" class="link" type="button"></button>
+          </span>
+          <div class="password">
+            <input id="unlock" type="password" autocomplete="off" spellcheck="false">
+            <button id="toggle-unlock" class="link" type="button"></button>
+          </div>
         </div>
-      </label>
-      <div id="strength" class="strength" hidden>
-        <div class="meter"><div id="strength-bar"></div></div>
-        <span id="strength-label"></span>
       </div>
 
-      <label id="confirm-field" class="field">
-        <span>Repeat password</span>
-        <input id="confirm" type="password" autocomplete="off" spellcheck="false">
-      </label>
+      <!-- Sets a password: encrypt, change password. -->
+      <div id="new-group" class="group">
+        <div class="field">
+          <span class="field-head">
+            <label id="password-label" for="password"></label>
+            <button id="generate" class="link" type="button" data-i18n="password.generate"></button>
+          </span>
+          <div class="password">
+            <input id="password" type="password" autocomplete="off" spellcheck="false">
+            <button id="toggle-password" class="link" type="button"></button>
+          </div>
+        </div>
+        <div id="strength" class="strength" hidden>
+          <div class="meter"><div id="strength-bar"></div></div>
+          <span id="strength-label"></span>
+        </div>
+        <p id="generated-note" class="note" hidden>
+          <span data-i18n="password.generatedNote"></span>
+          <button id="copy-password" class="link" type="button" data-i18n="copy"></button>
+        </p>
+        <label class="field">
+          <span data-i18n="password.repeat"></span>
+          <input id="confirm" type="password" autocomplete="off" spellcheck="false">
+        </label>
+      </div>
 
-      <label class="check">
+      <label id="delete-field" class="check">
         <input id="delete-source" type="checkbox">
         <span>
           <strong id="delete-label"></strong>
@@ -67,9 +102,26 @@
         </span>
       </label>
 
-      <p id="no-recovery" class="note">
-        There is no password recovery. If you forget the password, the files cannot be opened by anyone.
-      </p>
+      <label id="hide-field" class="check">
+        <input id="hide-names" type="checkbox">
+        <span>
+          <strong data-i18n="hide.label"></strong>
+          <small data-i18n="hide.note"></small>
+        </span>
+      </label>
+
+      <div id="output-field" class="output">
+        <div>
+          <strong data-i18n="output.label"></strong>
+          <small id="output-value"></small>
+        </div>
+        <div class="row">
+          <button id="output-choose" class="ghost small" type="button" data-i18n="output.choose"></button>
+          <button id="output-reset" class="link" type="button" data-i18n="output.reset" hidden></button>
+        </div>
+      </div>
+
+      <p id="recovery-line" class="note"></p>
 
       <p id="error" class="note error" hidden></p>
       <button id="start" class="primary" disabled></button>
@@ -82,22 +134,66 @@
         <span id="progress-percent">0%</span>
         <span id="progress-detail"></span>
       </div>
-      <button id="cancel" class="ghost">Cancel</button>
+      <button id="cancel" class="ghost"></button>
     </section>
 
     <section id="result" hidden>
       <h2 id="result-title"></h2>
-      <div class="tiles">
+      <div id="tiles" class="tiles">
         <div class="tile"><strong id="result-done">0</strong><span id="result-done-label"></span></div>
-        <div class="tile"><strong id="result-skipped">0</strong><span>skipped</span></div>
-        <div class="tile"><strong id="result-failed">0</strong><span>failed</span></div>
+        <div id="skipped-tile" class="tile"><strong id="result-skipped">0</strong><span data-i18n="result.skipped"></span></div>
+        <div class="tile"><strong id="result-failed">0</strong><span data-i18n="result.failed"></span></div>
       </div>
       <p id="result-note" class="note" hidden></p>
       <ul id="failures" hidden></ul>
-      <button id="again" class="primary">Done</button>
+      <button id="again" class="primary" data-i18n="result.again"></button>
     </section>
   </main>
 
+  <dialog id="recovery-dialog">
+    <h2 data-i18n="recovery.title"></h2>
+
+    <div id="recovery-off" class="dialog-body">
+      <p data-i18n="recovery.what"></p>
+      <p class="note warn" data-i18n="recovery.risk"></p>
+      <div class="dialog-actions">
+        <button id="recovery-create" class="primary" type="button" data-i18n="recovery.create"></button>
+        <button class="ghost close-dialog" type="button" data-i18n="close"></button>
+      </div>
+    </div>
+
+    <div id="recovery-on" class="dialog-body" hidden>
+      <p data-i18n="recovery.onText"></p>
+      <p class="note" data-i18n="recovery.onNote"></p>
+      <div class="dialog-actions">
+        <button id="recovery-replace" class="ghost" type="button" data-i18n="recovery.replace"></button>
+        <button id="recovery-disable" class="ghost danger" type="button" data-i18n="recovery.disable"></button>
+        <button class="ghost close-dialog" type="button" data-i18n="close"></button>
+      </div>
+    </div>
+
+    <div id="recovery-created" class="dialog-body" hidden>
+      <p data-i18n="recovery.createdText"></p>
+      <code id="recovery-key" class="key"></code>
+      <div class="row">
+        <button id="recovery-copy" class="ghost small" type="button" data-i18n="copy"></button>
+        <button id="recovery-save" class="ghost small" type="button" data-i18n="recovery.save"></button>
+        <span id="recovery-feedback" class="note"></span>
+      </div>
+      <p class="note warn" data-i18n="recovery.once"></p>
+      <label class="check">
+        <input id="recovery-saved" type="checkbox">
+        <span><strong data-i18n="recovery.confirm"></strong></span>
+      </label>
+      <div class="dialog-actions">
+        <button id="recovery-done" class="primary" type="button" data-i18n="result.again" disabled></button>
+      </div>
+    </div>
+
+    <p id="recovery-error" class="note error" hidden></p>
+  </dialog>
+
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

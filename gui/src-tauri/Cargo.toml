@@ -18,3 +18,4 @@ serde = { version = "1", features = ["derive"] }
 tauri = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 zeroize = "1"
+tauri-plugin-single-instance = "2"
