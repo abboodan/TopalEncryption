@@ -13,7 +13,7 @@ indicatif = "0.17"
 rpassword = "7"
 zeroize = "1"
 
-# Not `topal`: on Windows that would collide with the desktop app's `Topal.exe`.
+# Not `topal`: on Windows that would collide with a desktop app binary named `Topal.exe`.
 [[bin]]
 name = "topal-cli"
 path = "src/main.rs"

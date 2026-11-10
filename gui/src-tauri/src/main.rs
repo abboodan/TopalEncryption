@@ -189,5 +189,5 @@ fn main() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![pick_files, pick_folders, scan, start, cancel])
         .run(tauri::generate_context!())
-        .expect("failed to start Topal");
+        .expect("failed to start Topal Encryption");
 }

@@ -1,12 +1,12 @@
 [package]
 name = "topal-gui"
-description = "Topal desktop app"
+description = "Topal Encryption desktop app"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "Topal"
+name = "TopalEncryption"
 path = "src/main.rs"
 
 [build-dependencies]

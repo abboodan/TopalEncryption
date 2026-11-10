@@ -1,19 +1,19 @@
 <div align="center">
 
-<img src="assets/logo.svg" width="112" alt="Topal logo">
+<img src="assets/logo.svg" width="112" alt="Topal Encryption logo">
 
-# Topal
+# Topal Encryption
 
 **Password-protect any file or folder on Windows.**
 
 Photos, videos, documents, anything. Drop it in, type a password, done.
 Without the password, nobody can open the files. Not even you.
 
-[![CI](https://github.com/abboodan/topal/actions/workflows/ci.yml/badge.svg)](https://github.com/abboodan/topal/actions/workflows/ci.yml)
+[![CI](https://github.com/abboodan/TopalEncryption/actions/workflows/ci.yml/badge.svg)](https://github.com/abboodan/TopalEncryption/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-5eead4.svg)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/abboodan/topal?color=38bdf8)](https://github.com/abboodan/topal/releases/latest)
+[![Release](https://img.shields.io/github/v/release/abboodan/TopalEncryption?color=38bdf8)](https://github.com/abboodan/TopalEncryption/releases/latest)
 
-<img src="assets/screenshot.png" width="620" alt="Topal encrypting a folder of 1,248 files">
+<img src="assets/screenshot.png" width="620" alt="Topal Encryption encrypting a folder of 1,248 files">
 
 </div>
 
@@ -28,12 +28,12 @@ Without the password, nobody can open the files. Not even you.
 
 ## Download
 
-Get the latest build from the [Releases page](https://github.com/abboodan/topal/releases/latest):
+Get the latest build from the [Releases page](https://github.com/abboodan/TopalEncryption/releases/latest):
 
 | File | What it is |
 |---|---|
-| `Topal_x.y.z_x64-setup.exe` | Installer for the desktop app |
-| `Topal.exe` | Portable desktop app, no installation |
+| `TopalEncryption_x.y.z_x64-setup.exe` | Installer for the desktop app |
+| `TopalEncryption.exe` | Portable desktop app, no installation |
 | `topal-cli.exe` | Command-line tool |
 
 The builds are not code-signed, so Windows SmartScreen may warn on first launch
@@ -68,7 +68,7 @@ The password is prompted for without echo. For scripts, set `TOPAL_PASSWORD` ins
 
 ## How it works
 
-Topal invents no cryptography. It combines standard, well-studied primitives from the
+Topal Encryption invents no cryptography. It combines standard, well-studied primitives from the
 [RustCrypto](https://github.com/RustCrypto) project:
 
 | Step | Primitive |
@@ -108,7 +108,7 @@ be altered without the file being rejected.
 
 ## Security notes
 
-Please read these before trusting Topal with data you cannot afford to lose.
+Please read these before trusting Topal Encryption with data you cannot afford to lose.
 
 - **There is no password recovery.** A forgotten password means the data is gone. That is
   the point of the design, not a missing feature.
@@ -119,13 +119,13 @@ Please read these before trusting Topal with data you cannot afford to lose.
 - **Deleting originals is not a secure wipe.** It is a normal delete; on SSDs in particular,
   deleted data can remain recoverable. For data that must not be recoverable, use full-disk
   encryption (BitLocker) underneath.
-- **Topal has not had an independent security audit.** The primitives are standard and the
+- **Topal Encryption has not had an independent security audit.** The primitives are standard and the
   format is documented above, but the code is young. Review is welcome.
-- Topal protects files at rest. It cannot protect against malware already running on your
+- Topal Encryption protects files at rest. It cannot protect against malware already running on your
   PC while you type the password.
 
 Found a vulnerability? Please report it privately through
-[GitHub security advisories](https://github.com/abboodan/topal/security/advisories/new).
+[GitHub security advisories](https://github.com/abboodan/TopalEncryption/security/advisories/new).
 
 ## Build from source
 
@@ -133,15 +133,15 @@ Requirements: [Rust](https://rustup.rs) (stable), the Visual Studio C++ build to
 [Node.js](https://nodejs.org) for the desktop app.
 
 ```
-git clone https://github.com/abboodan/topal
-cd topal
+git clone https://github.com/abboodan/TopalEncryption
+cd TopalEncryption
 
 cargo test                         # run the test suite
 cargo build --release -p topal     # CLI      -> target/release/topal-cli.exe
 
 cd gui
 npm install
-npx tauri build                    # app      -> target/release/Topal.exe
+npx tauri build                    # app      -> target/release/TopalEncryption.exe
                                    # installer -> target/release/bundle/nsis/
 ```
 
