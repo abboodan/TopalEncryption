@@ -1,0 +1,18 @@
+[workspace]
+members = ["core", "cli", "gui/src-tauri"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+
+# Argon2 and the ciphers are unusably slow without optimisation, even in tests.
+[profile.dev.package."*"]
+opt-level = 3
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
