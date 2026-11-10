@@ -24,7 +24,16 @@ Without the password, nobody can open the files. Not even you.
 - **Safe to interrupt.** Each output is written to a temporary file and renamed into place only when complete. Cancel, crash or power loss never leaves a half-written file, and running again picks up where it stopped.
 - **Your originals stay** unless you tick the box. If you do, each encrypted file is decrypted back and checked before its original is removed.
 - **Tamper-evident.** A flipped bit, a truncated file or a swapped block is detected and reported instead of producing garbage.
-- **Small.** The installer is about 2 MB. No account, no network access, no telemetry.
+- **Hide file names.** Optionally give every output a random name and pack each folder into a single file, so names, folder structure and file count are encrypted too. The real names come back when decrypting.
+- **Rename freely.** The original name is stored inside the encrypted file, so `a1.topal` still decrypts to `photo.jpg`.
+- **Recovery key.** An optional second key, shown once for you to print, that opens your files if you forget the password.
+- **Change the password in seconds.** Only the small header of each file is rewritten, not the content, even for a 50 GB file.
+- **Verify.** Check that a backup still opens and is undamaged, without writing anything.
+- **Save anywhere.** Write the results next to the originals or into another folder or drive, keeping the folder structure.
+- **Passphrase generator.** One click for a strong passphrase made of six common words.
+- **Explorer right-click menu.** The installer adds *Encrypt with Topal Encryption* to files and folders; double-clicking a `.topal` file opens it for decryption.
+- **English and Arabic** interface, switchable at any time.
+- **Small.** The installer is a few megabytes. No account, no network access, no telemetry.
 
 ## Download
 
@@ -44,11 +53,16 @@ Windows 10 and 11.
 
 ### Desktop app
 
-1. Choose **Encrypt** or **Decrypt**.
+1. Choose **Encrypt**, **Decrypt**, **Verify** or **Change password**.
 2. Drop files or folders onto the window (or use **Add files** / **Add folder**).
 3. Type the password and press the button.
 
 Encrypting `photo.jpg` creates `photo.jpg.topal` next to it. Decrypting does the reverse.
+
+Options when encrypting: delete the originals once each encrypted file has been checked,
+hide file names, and choose another folder for the results. The **Recovery key** button in
+the header creates or turns off the recovery key. With the installer, you can also
+right-click files or folders in Explorer (on Windows 11, under *Show more options*).
 
 ### Command line
 
@@ -56,15 +70,35 @@ Encrypting `photo.jpg` creates `photo.jpg.topal` next to it. Decrypting does the
 topal-cli encrypt "D:\Vacation Photos"
 topal-cli decrypt "D:\Vacation Photos"
 topal-cli encrypt report.pdf video.mkv --delete-source
+topal-cli encrypt "D:\Private" --hide-names --output "E:\Backup"
+topal-cli verify "E:\Backup"
+topal-cli change-password "E:\Backup"
+topal-cli decrypt "E:\Backup" --recovery-key
+topal-cli recovery create
+topal-cli passphrase
 ```
+
+| Command | What it does |
+|---|---|
+| `encrypt` | Encrypt files, or every file inside folders |
+| `decrypt` | Decrypt `.topal` files, or every `.topal` file inside folders |
+| `verify` | Check that files open with the password and are undamaged; writes nothing |
+| `change-password` | Give files a new password without re-encrypting their content |
+| `recovery create`, `status`, `disable` | Manage the recovery key |
+| `passphrase` | Print a random passphrase |
 
 | Option | Meaning |
 |---|---|
 | `--delete-source` | Delete each source once its output is written and verified |
-| `--force` | Overwrite outputs that already exist instead of skipping them |
+| `--force` | Overwrite output files that already exist instead of skipping them |
+| `-o, --output <DIR>` | Write outputs to this folder, keeping the folder structure |
+| `--hide-names` | Random output names, and each folder packed into a single file |
+| `--no-recovery` | Do not add the recovery key to these files |
+| `--recovery-key` | Open files with the recovery key instead of the password |
 | `-j, --jobs <N>` | Files processed in parallel (default: all CPU cores) |
 
-The password is prompted for without echo. For scripts, set `TOPAL_PASSWORD` instead.
+Secrets are prompted for without echo. For scripts, set `TOPAL_PASSWORD`,
+`TOPAL_NEW_PASSWORD` or `TOPAL_RECOVERY_KEY` instead.
 
 ## How it works
 
@@ -76,6 +110,7 @@ Topal Encryption invents no cryptography. It combines standard, well-studied pri
 | Password → key | **Argon2id**, 256 MiB, 3 passes, 4 lanes, random 16-byte salt |
 | Key wrapping and content | **XChaCha20-Poly1305** (256-bit key, authenticated) |
 | Large files | **STREAM** construction: 1 MiB chunks, each bound to its position |
+| Recovery key | **X25519** key agreement, **HKDF-SHA256**, then XChaCha20-Poly1305 |
 
 ```
 password ──Argon2id──▶ key-encryption key ──unwraps──▶ random per-file key ──▶ file content
@@ -86,36 +121,59 @@ password ──Argon2id──▶ key-encryption key ──unwraps──▶ rando
 - Every file gets its own random 256-bit key. The password-derived key only wraps that key.
 - A batch shares one salt, so 10,000 files cost one key derivation rather than 10,000. Each
   `.topal` file is still fully self-contained and decrypts on its own.
+- Changing the password re-wraps the per-file key under the new password. The content, which
+  is encrypted with the per-file key, is not touched.
+- A recovery key is an X25519 key pair. Only the public half stays on the PC, so encrypting
+  never needs the secret half; each file key is additionally sealed to that public key. The
+  secret half is shown once and never stored by the app.
 
-### File format (version 1)
+### File format (version 2)
 
 All integers are little-endian.
 
 | Offset | Size | Field |
 |---:|---:|---|
 | 0 | 5 | Magic `TOPAL` |
-| 5 | 1 | Format version (`1`) |
-| 6 | 12 | Argon2id memory (KiB), passes, lanes |
-| 18 | 16 | Argon2id salt |
-| 34 | 4 | Plaintext chunk size |
-| 38 | 19 | Stream nonce prefix |
-| 57 | 24 | Key-wrap nonce |
-| 81 | 48 | Per-file key, wrapped (32 bytes + 16-byte tag) |
-| 129 | … | Encrypted chunks, each chunk size + 16-byte tag |
+| 5 | 1 | Format version (`2`) |
+| 6 | 1 | Flags: `1` folder container, `2` has a recovery slot |
+| 7 | 12 | Argon2id memory (KiB), passes, lanes |
+| 19 | 16 | Argon2id salt |
+| 35 | 4 | Plaintext chunk size |
+| 39 | 19 | Stream nonce prefix |
+| 58 | 24 | Key-wrap nonce |
+| 82 | 48 | Per-file key, wrapped with the password key (32 bytes + 16-byte tag) |
+| 130 | 32 | Recovery slot: ephemeral X25519 public key (only with flag `2`) |
+| 162 | 48 | Recovery slot: per-file key, wrapped for the recovery key (only with flag `2`) |
+| … | … | Encrypted chunks, each chunk size + 16-byte tag |
 
-Bytes 0–56 are authenticated as associated data of the wrapped key, so the header cannot
-be altered without the file being rejected.
+Bytes 0–57 are authenticated as associated data of the password-wrapped key, so the header
+cannot be altered without the file being rejected. The recovery slot authenticates the same
+fields except the password salt and costs, which is what allows a password change without
+the recovery key.
+
+The encrypted stream starts with the original name (2-byte length, then UTF-8), followed by
+the file content. For a folder container it is followed by a sequence of entries instead:
+kind (`1` file, `2` folder, `0` end), 2-byte path length, relative path, and for files an
+8-byte size and the content. Nothing is compressed. When unpacking, every path component is
+checked so that a crafted file cannot write outside its own folder.
+
+Version 1 files (no flags byte, no recorded name, no recovery slot) are still read.
 
 ## Security notes
 
 Please read these before trusting Topal Encryption with data you cannot afford to lose.
 
-- **There is no password recovery.** A forgotten password means the data is gone. That is
-  the point of the design, not a missing feature.
+- **There is no password recovery unless you create a recovery key first.** Without one, a
+  forgotten password means the data is gone. That is the point of the design.
+- **A recovery key is as powerful as the password.** Anyone who has it can open every file
+  encrypted while it was on. Keep it on paper or in a password manager, away from the files.
+- **Changing a password does not reach old copies.** A backup made before the change still
+  opens with the old password.
 - **Your password is the weak link.** The encryption is only as strong as the password.
   Use a long passphrase.
-- **File names, sizes and folder structure are not hidden.** `tax-2025.pdf` becomes
-  `tax-2025.pdf.topal`. Only the content is encrypted.
+- **File names and folder structure are visible unless you tick *Hide file names*.** By
+  default `tax-2025.pdf` becomes `tax-2025.pdf.topal`. Sizes are never hidden: an encrypted
+  file is about as large as what it holds.
 - **Deleting originals is not a secure wipe.** It is a normal delete; on SSDs in particular,
   deleted data can remain recoverable. For data that must not be recoverable, use full-disk
   encryption (BitLocker) underneath.
