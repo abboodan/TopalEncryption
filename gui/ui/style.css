@@ -274,3 +274,27 @@ dialog p { margin: 0; }
 #failures li { padding: 8px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
 #failures li span { display: block; color: var(--danger); }
 #failures li code { font: 12px Consolas, monospace; color: var(--muted); word-break: break-all; }
+
+/* The action button stays in view when the window is too short to show everything. */
+#start {
+  position: sticky;
+  bottom: 0;
+  box-shadow: 0 -10px 14px 6px var(--bg), 0 18px 0 0 var(--bg);
+}
+
+/* Short windows: small screens, or large display scaling. */
+@media (max-height: 760px) {
+  section, .group { gap: 10px; }
+  main { padding-top: 12px; padding-bottom: 12px; }
+  .drop { padding: 12px 16px; }
+  .drop svg, .drop-sub { display: none; }
+  .drop-title { margin: 0 0 6px; }
+}
+/* Narrow windows. */
+@media (max-width: 600px) {
+  header { padding: 14px 16px; }
+  .brand p { display: none; }
+  .segmented { margin: 12px 16px 0; }
+  .segmented button { padding: 7px 4px; font-size: 13px; }
+  main { padding: 14px 16px 16px; }
+}

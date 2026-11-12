@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, State, WebviewWindow};
 use tauri_plugin_dialog::DialogExt;
 use topal_core::batch::{self, Job, Mode, Options, Progress, Unlock};
 use topal_core::recovery::{self, RecoveryKey};
@@ -20,6 +20,11 @@ const OPEN_EVENT: &str = "open-paths";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(80);
 const MAX_FAILURES_REPORTED: usize = 200;
 const RECOVERY_KEY_FILE: &str = "Topal Encryption recovery key.txt";
+
+/// The size of the window content the interface is designed for, in logical pixels.
+const PREFERRED_SIZE: (f64, f64) = (720.0, 860.0);
+/// Space left free around the window on screens it has to shrink for, in logical pixels.
+const SCREEN_MARGIN: f64 = 16.0;
 
 /// The batch in flight, if any, so that `cancel` can reach it.
 #[derive(Default)]
@@ -143,6 +148,55 @@ fn parse_args(args: impl IntoIterator<Item = String>) -> Option<OpenRequest> {
     };
     let mode = mode.unwrap_or(if paths.iter().all(is_topal) { ModeArg::Decrypt } else { ModeArg::Encrypt });
     Some(OpenRequest { mode, paths })
+}
+
+/// A rectangle in physical pixels: `(x, y, width, height)`.
+type Rect = (i32, i32, u32, u32);
+
+/// Where the window goes on a screen: the content size, and the position of the whole
+/// window. The window takes its preferred size where the screen allows it, shrinks to
+/// fit where it does not (small screens, high display scaling), and is centred in the
+/// area that the taskbar leaves free.
+///
+/// `frame` is how much the title bar and borders add to the content size.
+fn place_window(work_area: Rect, frame: (u32, u32), scale: f64) -> ((u32, u32), (i32, i32)) {
+    let (area_x, area_y, area_width, area_height) = work_area;
+    let margin = (SCREEN_MARGIN * scale).round() as u32 * 2;
+    let fit = |preferred: f64, available: u32, frame: u32| {
+        let preferred = (preferred * scale).round() as u32;
+        preferred.min(available.saturating_sub(frame + margin)).max(1)
+    };
+    let width = fit(PREFERRED_SIZE.0, area_width, frame.0);
+    let height = fit(PREFERRED_SIZE.1, area_height, frame.1);
+    let centre = |start: i32, available: u32, outer: u32| {
+        start + (i64::from(available) - i64::from(outer)).max(0) as i32 / 2
+    };
+    let x = centre(area_x, area_width, width + frame.0);
+    let y = centre(area_y, area_height, height + frame.1);
+    ((width, height), (x, y))
+}
+
+/// Sizes and centres the window for the screen it opens on, then shows it. The window
+/// starts hidden so that it never appears at the wrong size or place first.
+fn fit_to_screen(window: &WebviewWindow) {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten());
+    if let (Some(monitor), Ok(inner), Ok(outer)) = (monitor, window.inner_size(), window.outer_size()) {
+        let area = monitor.work_area();
+        let frame = (outer.width.saturating_sub(inner.width), outer.height.saturating_sub(inner.height));
+        let ((width, height), (x, y)) = place_window(
+            (area.position.x, area.position.y, area.size.width, area.size.height),
+            frame,
+            monitor.scale_factor(),
+        );
+        let _ = window.set_size(PhysicalSize::new(width, height));
+        let _ = window.set_position(PhysicalPosition::new(x, y));
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 #[tauri::command]
@@ -370,6 +424,12 @@ fn main() {
         }))
         .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
+        .setup(|app| {
+            if let Some(window) = app.get_webview_window("main") {
+                fit_to_screen(&window);
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             launch_request,
             pick_files,
@@ -386,4 +446,58 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Topal Encryption");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Title bar and borders of a typical Windows window at 100% scaling.
+    const FRAME: (u32, u32) = (16, 39);
+
+    fn scaled(frame: (u32, u32), scale: f64) -> (u32, u32) {
+        ((frame.0 as f64 * scale) as u32, (frame.1 as f64 * scale) as u32)
+    }
+
+    /// The whole window must lie inside the work area, centred to within a pixel.
+    fn assert_fits(work_area: Rect, scale: f64) -> (u32, u32) {
+        let frame = scaled(FRAME, scale);
+        let ((width, height), (x, y)) = place_window(work_area, frame, scale);
+        let (outer_width, outer_height) = (width + frame.0, height + frame.1);
+        let (area_x, area_y, area_width, area_height) = work_area;
+        assert!(outer_width <= area_width && outer_height <= area_height, "{work_area:?} @ {scale}");
+        let (left, top) = (x - area_x, y - area_y);
+        let right = area_width as i32 - left - outer_width as i32;
+        let bottom = area_height as i32 - top - outer_height as i32;
+        assert!(left >= 0 && top >= 0, "{work_area:?} @ {scale}");
+        assert!((left - right).abs() <= 1 && (top - bottom).abs() <= 1, "{work_area:?} @ {scale}");
+        (width, height)
+    }
+
+    #[test]
+    fn large_screens_get_the_preferred_size() {
+        assert_eq!(assert_fits((0, 0, 2560, 1392), 1.0), (720, 860));
+        assert_eq!(assert_fits((0, 0, 3840, 2100), 1.5), (1080, 1290));
+        assert_eq!(assert_fits((0, 0, 1920, 1032), 1.0), (720, 860));
+    }
+
+    #[test]
+    fn small_or_scaled_screens_shrink_the_window_to_fit() {
+        // 1920x1080 at 125%: the case that used to hang off the bottom of the screen.
+        let (width, height) = assert_fits((0, 0, 1920, 1020), 1.25);
+        assert_eq!(width, 900);
+        assert!(height < 1075);
+        // 1366x768 laptops, at 100% and 125%.
+        assert_fits((0, 0, 1366, 728), 1.0);
+        assert_fits((0, 0, 1366, 718), 1.25);
+        // 1280x720 at 150%.
+        assert_fits((0, 0, 1280, 660), 1.5);
+    }
+
+    #[test]
+    fn a_second_monitor_and_a_side_taskbar_are_respected() {
+        assert_fits((1920, 0, 1280, 984), 1.0);
+        assert_fits((-1600, 120, 1600, 860), 1.0);
+        assert_fits((72, 0, 1848, 1080), 1.25);
+    }
 }
