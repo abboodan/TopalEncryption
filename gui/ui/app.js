@@ -24,6 +24,7 @@ const state = {
   useRecoveryKey: false,
   outputDir: null,
   recoveryOn: false,
+  recoveryId: null, // ID of the key in use, for the user to compare with the one they noted
   generated: false,
 };
 
@@ -49,11 +50,23 @@ function formatBytes(bytes) {
 /** Rough strength estimate, 1 (weak) to 4 (strong): length matters most. */
 function strength(password) {
   const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((re) => re.test(password)).length;
-  const bits = password.length * [0, 4.7, 5.7, 5.95, 6.5][classes];
+  // Repeating a character adds little: each distinct one counts at most twice.
+  const length = Math.min(password.length, new Set(password).size * 2);
+  // The first things anyone tries. Containing one halves the estimate.
+  const common = /pass|qwert|asdf|1234|4321|abcd|admin|letmein|welcome|iloveyou|0000|1111/i.test(password);
+  const bits = length * [0, 4.7, 5.7, 5.95, 6.5][classes] * (common ? 0.5 : 1);
   if (bits < 40) return 1;
   if (bits < 60) return 2;
   if (bits < 80) return 3;
   return 4;
+}
+
+/**
+ * A path or name as it really is: characters that change the direction text is drawn
+ * in are replaced by a visible mark, so a name cannot be displayed as something else.
+ */
+function plainName(text) {
+  return text.replace(/[\u202A-\u202E\u2066-\u2069]/g, "\uFFFD");
 }
 
 function show(section) {
@@ -103,8 +116,8 @@ function render() {
       const item = document.createElement("li");
       const label = document.createElement("span");
       // Shown right-to-left so a long path is cut at its start, keeping the file name.
-      label.textContent = `‎${path}`;
-      label.title = path;
+      label.textContent = `‎${plainName(path)}`;
+      label.title = plainName(path);
       const remove = document.createElement("button");
       remove.textContent = "×";
       remove.title = t("remove");
@@ -166,7 +179,11 @@ function render() {
 
   $("recovery-dot").classList.toggle("on", state.recoveryOn);
   $("recovery-line").hidden = mode !== "encrypt";
-  $("recovery-line").textContent = t(state.recoveryOn ? "recovery.lineOn" : "recovery.lineOff");
+  // Isolated so that the ID keeps its order inside right-to-left text.
+  $("recovery-line").textContent = state.recoveryOn
+    ? t("recovery.lineOn", { id: `\u2068${state.recoveryId}\u2069` })
+    : t("recovery.lineOff");
+  $("recovery-id-on").textContent = state.recoveryId ?? "";
 
   const ready = scan && scan.items > 0;
   const secrets =
@@ -291,6 +308,11 @@ function showResult(summary) {
 
   const notes = [];
   if (summary.skipped > 0) notes.push(t("result.noteSkipped"));
+  if (summary.programs.length > 0) {
+    // Isolated so that each name keeps its own order inside right-to-left text.
+    const names = summary.programs.map((name) => `\u2068${plainName(name)}\u2069`).join(", ");
+    notes.push(t("result.notePrograms", { names }));
+  }
   if (summary.cancelled) notes.push(t("result.noteCancelled"));
   if (wrong) {
     notes.push(t("result.noteWrong"));
@@ -302,17 +324,19 @@ function showResult(summary) {
 
   $("failures").hidden = failures.length === 0;
   $("failures").replaceChildren(
-    ...failures.map(({ path, code, reason }) => {
+    ...failures.map(({ path, code, reason, detail }) => {
       const item = document.createElement("li");
       const why = document.createElement("span");
       // Disk errors come from Windows already worded; the rest are ours to translate.
       why.textContent = I18N.en[`err.${code}`] ? t(`err.${code}`) : reason;
       const where = document.createElement("code");
-      where.textContent = path;
+      where.textContent = plainName(detail ?? path);
       item.append(why, where);
       return item;
     }),
   );
+  // The job is over: the secrets have no reason to stay in the page.
+  clearSecrets();
   show("result");
 }
 
@@ -360,7 +384,8 @@ function showRecoveryView(view) {
 }
 
 async function refreshRecovery() {
-  state.recoveryOn = await invoke("recovery_status");
+  state.recoveryId = await invoke("recovery_status");
+  state.recoveryOn = state.recoveryId !== null;
   render();
 }
 
@@ -386,8 +411,9 @@ async function recoveryAction(action) {
 }
 
 async function createRecoveryKey() {
-  const key = await invoke("recovery_create");
+  const { key, id } = await invoke("recovery_create");
   $("recovery-key").textContent = key;
+  $("recovery-id-created").textContent = id;
   $("recovery-saved").checked = false;
   $("recovery-done").disabled = true;
   $("recovery-feedback").textContent = "";

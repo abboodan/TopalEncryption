@@ -89,9 +89,13 @@ pub const CHUNK_SIZE: u32 = 1 << 20;
 
 // Bounds accepted when reading, so a crafted header cannot demand absurd resources.
 const MAX_CHUNK_SIZE: u32 = 16 << 20;
-const MAX_MEMORY_KIB: u32 = 4 << 20;
-const MAX_PASSES: u32 = 64;
-const MAX_LANES: u32 = 64;
+// Files written by this program use 256 MiB, 3 passes and 4 lanes. A file can ask for
+// up to four times that work before it is refused: every file in a folder can carry its
+// own salt, so whatever one header may demand, a folder of crafted files demands once
+// per file. Raise these together with the defaults if the defaults ever go up.
+const MAX_MEMORY_KIB: u32 = 512 * 1024;
+const MAX_PASSES: u32 = 6;
+const MAX_LANES: u32 = 16;
 
 type Secret = Zeroizing<[u8; KEY_LEN]>;
 
@@ -121,6 +125,9 @@ pub enum Error {
     UnsafePath,
     #[error("an output with this name already exists")]
     OutputExists,
+    /// Holds the path of the file or folder whose name is the problem.
+    #[error("this name cannot be kept inside an encrypted folder (too long, or not allowed on Windows): {0}")]
+    UnsupportedName(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -275,9 +282,6 @@ impl Header {
         }
         let u32_at = |at: usize| u32::from_le_bytes(raw[at..at + 4].try_into().unwrap());
         let params = KdfParams { memory_kib: u32_at(1), passes: u32_at(5), lanes: u32_at(9) };
-        if params.memory_kib > MAX_MEMORY_KIB || params.passes > MAX_PASSES || params.lanes > MAX_LANES {
-            return Err(Error::InvalidKdfParams);
-        }
         let chunk_size = u32_at(29);
         if chunk_size == 0 || chunk_size > MAX_CHUNK_SIZE {
             return Err(Error::Corrupted);
@@ -395,7 +399,8 @@ impl Encryptor {
         OsRng.fill_bytes(&mut header.stream_prefix);
         self.wrap(&mut header, &file_key);
         if let Some(public) = &self.recovery {
-            let (ephemeral, wrapped_key) = recovery::seal(public, &file_key, &header.recovery_aad());
+            let (ephemeral, wrapped_key) =
+                recovery::seal(public, &file_key, &header.recovery_aad())?;
             header.recovery = Some(RecoverySlot { ephemeral, wrapped_key });
         }
         writer.write_all(&header.to_bytes())?;
@@ -493,7 +498,17 @@ impl Decryptor {
     fn file_key(&self, header: &Header) -> Result<Secret> {
         match &self.credential {
             Credential::Password(password) => {
-                let kek = self.kek(password, header.salt, header.params)?;
+                // Checked here rather than when parsing: the costs matter only to the
+                // password, so a recovery key can still open a file whose password
+                // fields were damaged.
+                let params = header.params;
+                if params.memory_kib > MAX_MEMORY_KIB
+                    || params.passes > MAX_PASSES
+                    || params.lanes > MAX_LANES
+                {
+                    return Err(Error::InvalidKdfParams);
+                }
+                let kek = self.kek(password, header.salt, params)?;
                 let unwrapped = Zeroizing::new(
                     cipher(&kek)
                         .decrypt(
@@ -530,6 +545,7 @@ impl Decryptor {
             next: vec![0u8; chunk],
             plain: Zeroizing::new(Vec::new()),
             pos: 0,
+            failed: false,
         };
         content.current_len = read_full(&mut content.reader, &mut content.current)?;
 
@@ -582,11 +598,27 @@ pub struct DecryptReader<R> {
     next: Vec<u8>,
     plain: Zeroizing<Vec<u8>>,
     pos: usize,
+    /// Set by the first error. From then on every read fails: a caller that carries on
+    /// after an error must never be handed more data, or a clean end of file.
+    failed: bool,
 }
 
 impl<R: Read> DecryptReader<R> {
     /// Decrypts the next chunk into `plain`. Returns `false` at the end of the stream.
     fn fill(&mut self) -> Result<bool> {
+        if self.failed {
+            return Err(Error::Corrupted);
+        }
+        let result = self.fill_next();
+        if result.is_err() {
+            self.failed = true;
+            self.plain = Zeroizing::new(Vec::new());
+            self.pos = 0;
+        }
+        result
+    }
+
+    fn fill_next(&mut self) -> Result<bool> {
         let Some(mut stream) = self.stream.take() else { return Ok(false) };
         let chunk = self.current.len();
         // A chunk is the last one only if nothing follows it, so read one ahead.
@@ -770,6 +802,26 @@ mod tests {
                 matches!(decrypt("pw", &sealed[..cut]), Err(Error::Corrupted)),
                 "cut at {cut}"
             );
+        }
+    }
+
+    #[test]
+    fn a_reader_that_failed_keeps_failing() {
+        let sealed = encrypt(&Encryptor::new("pw", FAST).unwrap(), &sample(2 * CHUNK + 100));
+        // Cut after the second chunk: the final one is missing.
+        let cut = &sealed[..HEADER + 2 * (CHUNK + TAG_LEN)];
+        let mut content = Decryptor::new("pw").open(cut).unwrap().content;
+        let mut buf = vec![0u8; 64 * 1024];
+        let mut good = 0;
+        while let Ok(n) = content.read(&mut buf) {
+            assert_ne!(n, 0, "a cut file must never look complete");
+            good += n;
+        }
+        assert_eq!(good, CHUNK - PREFIX, "only the first chunk is handed out");
+        // Asking again gives neither old data nor an end of file.
+        for _ in 0..3 {
+            assert!(content.read(&mut buf).is_err());
+            assert!(content.next_chunk().is_err());
         }
     }
 

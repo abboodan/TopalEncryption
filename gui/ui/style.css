@@ -254,6 +254,13 @@ dialog p { margin: 0; }
 .dialog-body { display: flex; flex-direction: column; gap: 14px; }
 .dialog-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
 .dialog-actions .primary { padding: 9px 16px; font-size: 14px; }
+/* Always left to right and in one piece, whatever the language around it. */
+.key-id {
+  display: inline-block;
+  white-space: nowrap;
+  unicode-bidi: isolate;
+}
+
 .key {
   display: block;
   padding: 12px;

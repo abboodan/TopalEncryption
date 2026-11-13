@@ -112,7 +112,8 @@ const I18N = {
     "recovery.once":
       "It is shown only once and is not stored by the app. If you lose it, it cannot be shown again.",
     "recovery.confirm": "I have saved the key somewhere safe",
-    "recovery.lineOn": "Recovery key is on: these files can also be opened with it.",
+    "recovery.lineOn": "Recovery key {id} is on: these files can also be opened with it.",
+    "recovery.id": "Key ID (must match the one saved with your key):",
     "recovery.lineOff":
       "There is no password recovery. If you forget the password, the files cannot be opened by anyone.",
 
@@ -130,6 +131,9 @@ const I18N = {
     "result.wrongPassword": "Wrong password",
     "result.wrongRecoveryKey": "Wrong recovery key",
     "result.noteSkipped": "Skipped files already had an output next to them.",
+    "result.notePrograms":
+      "Written as programs, under names the encrypted files did not show: {names}. " +
+      "Open them only if you trust where the encrypted files came from.",
     "result.noteCancelled": "Files that were not finished were left untouched.",
     "result.noteWrong": "None of the files could be opened. Nothing was changed.",
     "result.noteFirst": "Showing the first {count} failures.",
@@ -145,6 +149,7 @@ const I18N = {
     "err.verification_failed": "The file changed while it was being encrypted",
     "err.unsafe_path": "The encrypted folder contains an unsafe path",
     "err.output_exists": "An output with this name already exists",
+    "err.unsupported_name": "A name in this folder is too long or not allowed on Windows. Rename it and try again:",
     "err.unsupported_version": "Made by a newer version of Topal Encryption",
 
     units: ["B", "KB", "MB", "GB", "TB"],
@@ -256,7 +261,8 @@ const I18N = {
     "recovery.saved": "تم الحفظ",
     "recovery.once": "يظهر مرة واحدة فقط ولا يحفظه التطبيق. إذا فقدته فلا يمكن عرضه مرة أخرى.",
     "recovery.confirm": "حفظت المفتاح في مكان آمن",
-    "recovery.lineOn": "مفتاح الاسترداد مفعّل: هذه الملفات تُفتح به أيضاً.",
+    "recovery.lineOn": "مفتاح الاسترداد {id} مفعّل: هذه الملفات تُفتح به أيضاً.",
+    "recovery.id": "معرّف المفتاح (يجب أن يطابق المعرّف المحفوظ مع مفتاحك):",
     "recovery.lineOff": "لا توجد استعادة لكلمة السر. إذا نسيتها فلن يستطيع أحد فتح الملفات.",
 
     "working.preparing": "جارٍ تجهيز المفتاح…",
@@ -273,6 +279,9 @@ const I18N = {
     "result.wrongPassword": "كلمة السر خاطئة",
     "result.wrongRecoveryKey": "مفتاح الاسترداد خاطئ",
     "result.noteSkipped": "الملفات المتخطاة كان ناتجها موجوداً من قبل.",
+    "result.notePrograms":
+      "كُتبت كبرامج بأسماء لم تكن ظاهرة في أسماء الملفات المشفّرة: {names}. " +
+      "لا تفتحها إلا إذا كنت تثق بمصدر الملفات المشفّرة.",
     "result.noteCancelled": "الملفات التي لم تكتمل بقيت كما هي.",
     "result.noteWrong": "تعذّر فتح أي ملف. لم يتغير شيء.",
     "result.noteFirst": "تُعرض أول {count} حالة فشل.",
@@ -288,6 +297,7 @@ const I18N = {
     "err.verification_failed": "تغيّر الملف أثناء تشفيره",
     "err.unsafe_path": "المجلد المشفّر يحتوي مساراً غير آمن",
     "err.output_exists": "يوجد ناتج بهذا الاسم من قبل",
+    "err.unsupported_name": "يوجد في هذا المجلد اسم طويل جداً أو غير مسموح في Windows. غيّر الاسم ثم أعد المحاولة:",
     "err.unsupported_version": "أُنشئ بإصدار أحدث من Topal Encryption",
 
     units: ["بايت", "ك.ب", "م.ب", "غ.ب", "ت.ب"],

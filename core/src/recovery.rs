@@ -137,6 +137,19 @@ impl RecoveryPublic {
     pub fn parse(text: &str) -> Result<Self> {
         Ok(Self(*decode(PUBLIC_PREFIX, text)?))
     }
+
+    /// A short name for this key, safe to show: `XXXX-XXXX-XXXX-XXXX`, the first eight
+    /// bytes of `SHA-256("TOPAL-PUB-ID" ‖ public key)` in hex.
+    ///
+    /// The stored public key is an ordinary file that anything running as the user can
+    /// replace, after which new files would open with someone else's key. Showing this
+    /// wherever the key is used, and on the copy the user keeps, lets a swap be noticed.
+    pub fn id(&self) -> String {
+        let digest = Sha256::new().chain_update(b"TOPAL-PUB-ID").chain_update(self.0).finalize();
+        let groups: Vec<String> =
+            digest[..8].chunks(2).map(|pair| format!("{:02X}{:02X}", pair[0], pair[1])).collect();
+        groups.join("-")
+    }
 }
 
 impl fmt::Display for RecoveryPublic {
@@ -163,16 +176,21 @@ pub(crate) fn seal(
     public: &RecoveryPublic,
     file_key: &[u8; KEY_LEN],
     aad: &[u8],
-) -> ([u8; EPHEMERAL_LEN], [u8; KEY_LEN + TAG_LEN]) {
+) -> Result<([u8; EPHEMERAL_LEN], [u8; KEY_LEN + TAG_LEN])> {
     let ephemeral_secret = StaticSecret::random_from_rng(OsRng);
     let ephemeral = PublicKey::from(&ephemeral_secret).to_bytes();
     let shared = ephemeral_secret.diffie_hellman(&PublicKey::from(public.0));
+    // A degenerate public key makes the shared secret a constant that anyone can
+    // compute. A key we generated never is one; a tampered settings file could be.
+    if !shared.was_contributory() {
+        return Err(Error::InvalidRecoveryKey);
+    }
     let sealed = wrap_cipher(shared.as_bytes(), &ephemeral, &public.0)
         .encrypt(&XNonce::default(), Payload { msg: file_key, aad })
         .expect("wrapping a 32-byte key cannot fail");
     let mut wrapped = [0u8; KEY_LEN + TAG_LEN];
     wrapped.copy_from_slice(&sealed);
-    (ephemeral, wrapped)
+    Ok((ephemeral, wrapped))
 }
 
 pub(crate) fn open(
@@ -255,6 +273,20 @@ mod tests {
     }
 
     #[test]
+    fn key_id_is_stable_short_and_distinct() {
+        let key = RecoveryKey::generate();
+        let id = key.public().id();
+        assert_eq!(id.len(), 19);
+        assert!(id.split('-').all(|group| group.len() == 4 && group.chars().all(|c| c.is_ascii_hexdigit())));
+        assert_eq!(id, RecoveryKey::parse(&key.to_text()).unwrap().public().id());
+        assert_ne!(id, RecoveryKey::generate().public().id());
+        // The documented definition, so that other tools can compute it too.
+        let digest = Sha256::new().chain_update(b"TOPAL-PUB-ID").chain_update([7u8; 32]).finalize();
+        let hex: String = digest[..8].iter().map(|byte| format!("{byte:02X}")).collect();
+        assert_eq!(RecoveryPublic([7u8; 32]).id().replace('-', ""), hex);
+    }
+
+    #[test]
     fn typos_and_wrong_kinds_are_rejected() {
         let key = RecoveryKey::generate();
         let text = key.to_text().to_string();
@@ -275,9 +307,16 @@ mod tests {
     fn only_the_matching_key_opens_a_sealed_key() {
         let key = RecoveryKey::generate();
         let file_key = [7u8; KEY_LEN];
-        let (ephemeral, wrapped) = seal(&key.public(), &file_key, b"aad");
+        let (ephemeral, wrapped) = seal(&key.public(), &file_key, b"aad").unwrap();
         assert_eq!(*open(&key, &ephemeral, &wrapped, b"aad").unwrap(), file_key);
         assert!(open(&RecoveryKey::generate(), &ephemeral, &wrapped, b"aad").is_err());
         assert!(open(&key, &ephemeral, &wrapped, b"other").is_err());
+    }
+
+    #[test]
+    fn a_degenerate_public_key_is_refused() {
+        // The all-zero point: every shared secret computed with it is zero.
+        let weak = RecoveryPublic([0u8; 32]);
+        assert!(matches!(seal(&weak, &[7u8; KEY_LEN], b"aad"), Err(Error::InvalidRecoveryKey)));
     }
 }

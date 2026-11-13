@@ -48,8 +48,13 @@ enum Command {
 #[derive(Subcommand)]
 enum RecoveryCommand {
     /// Create a recovery key, print it once, and use it for files encrypted from now on
-    Create,
-    /// Show whether a recovery key is in use
+    Create {
+        /// Replace the recovery key already in use. Files encrypted with the previous
+        /// key still need that key
+        #[arg(long)]
+        replace: bool,
+    },
+    /// Show whether a recovery key is in use, and its ID
     Status,
     /// Stop adding the recovery key to new files (existing files keep it)
     Disable,
@@ -74,7 +79,9 @@ struct Output {
     #[arg(long)]
     delete_source: bool,
 
-    /// Overwrite output files that already exist instead of skipping them
+    /// Overwrite output files that already exist instead of skipping them. When
+    /// decrypting, only an output named after the encrypted file (`a.txt` for
+    /// `a.txt.topal`) is overwritten; one whose name is only stored inside is skipped
     #[arg(long)]
     force: bool,
 
@@ -238,6 +245,15 @@ fn run<'a>(
     if failed > MAX_FAILURES_SHOWN {
         eprintln!("  ... and {} more", failed - MAX_FAILURES_SHOWN);
     }
+    if !summary.program_outputs.is_empty() {
+        eprintln!(
+            "note: these were written as programs, under names the encrypted files did not \
+             show. Open them only if you trust where the encrypted files came from:"
+        );
+        for path in summary.program_outputs.iter().take(MAX_FAILURES_SHOWN) {
+            eprintln!("  {}", path.display());
+        }
+    }
     Ok(failed == 0 && scan.warnings.is_empty())
 }
 
@@ -291,8 +307,11 @@ fn encrypt(args: EncryptArgs) -> Result<bool> {
         } else {
             recovery::load_public().context("cannot read the stored recovery key")?
         };
-        if recovery.is_some() {
-            eprintln!("The recovery key is in use: these files can also be opened with it.");
+        if let Some(public) = &recovery {
+            eprintln!(
+                "Recovery key {} is in use: these files can also be opened with it.",
+                public.id()
+            );
         }
         let password = read_secret(PASSWORD_ENV, "Password", true)?;
         Ok(Box::new(EncryptSecrets { password, recovery }))
@@ -318,23 +337,41 @@ fn change_password(args: UnlockArgs) -> Result<bool> {
 
 fn recovery_command(command: RecoveryCommand) -> Result<bool> {
     match command {
-        RecoveryCommand::Create => {
-            if recovery::load_public().unwrap_or(None).is_some() {
+        RecoveryCommand::Create { replace } => {
+            // A store that cannot be read counts as a key in use: it would be overwritten.
+            let current = match recovery::load_public() {
+                Ok(None) => None,
+                Ok(Some(public)) => Some(public.id()),
+                Err(_) => Some("(unreadable)".to_owned()),
+            };
+            if let Some(current) = current {
+                if !replace {
+                    bail!(
+                        "recovery key {current} is already in use; pass --replace to create a \
+                         new one. Files encrypted with the current key still need that key"
+                    );
+                }
                 eprintln!(
-                    "Replacing the recovery key in use. Files encrypted with the previous key \
-                     still need that key: keep it."
+                    "Replacing recovery key {current}. Files encrypted with it still need \
+                     that key: keep it."
                 );
             }
             let key = RecoveryKey::generate();
             recovery::save_public(&key.public())?;
             println!("{}", *key.to_text());
             eprintln!();
+            eprintln!("Key ID: {}", key.public().id());
             eprintln!("This is your recovery key. It is shown only once and is not stored anywhere.");
+            eprintln!("Note the key ID with it: `recovery status` and every `encrypt` show the ID");
+            eprintln!("of the key in use, and it must be this one.");
             eprintln!("Print it or write it down and keep it somewhere safe, away from this PC.");
             eprintln!("Anyone who has it can open files encrypted from now on without the password.");
         }
         RecoveryCommand::Status => match recovery::load_public()? {
-            Some(_) => println!("A recovery key is in use: new files can also be opened with it."),
+            Some(public) => {
+                println!("Recovery key {} is in use: new files can also be opened with it.", public.id());
+                println!("The ID must match the one you noted with your recovery key.");
+            }
             None => println!("No recovery key is in use."),
         },
         RecoveryCommand::Disable => {

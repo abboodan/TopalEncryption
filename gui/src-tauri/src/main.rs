@@ -19,6 +19,7 @@ const PROGRESS_EVENT: &str = "progress";
 const OPEN_EVENT: &str = "open-paths";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(80);
 const MAX_FAILURES_REPORTED: usize = 200;
+const MAX_PROGRAMS_REPORTED: usize = 10;
 const RECOVERY_KEY_FILE: &str = "Topal Encryption recovery key.txt";
 
 /// The size of the window content the interface is designed for, in logical pixels.
@@ -52,6 +53,13 @@ impl From<ModeArg> for Mode {
     }
 }
 
+/// A new recovery key: the secret text, and the ID that names it wherever it is used.
+#[derive(Serialize)]
+struct CreatedKey {
+    key: String,
+    id: String,
+}
+
 #[derive(Serialize)]
 struct ScanInfo {
     /// Units of work: a folder packed whole counts once.
@@ -75,6 +83,8 @@ struct Failure {
     /// Stable identifier the interface translates; `reason` is the English fallback.
     code: &'static str,
     reason: String,
+    /// The file or folder inside `path` that the problem is about, when there is one.
+    detail: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -86,6 +96,9 @@ struct SummaryInfo {
     /// At most `MAX_FAILURES_REPORTED`; `failed` is the true count.
     failures: Vec<Failure>,
     warnings: Vec<String>,
+    /// Names of outputs written as programs although the encrypted file's name did not
+    /// show it, for the interface to point out. At most `MAX_PROGRAMS_REPORTED`.
+    programs: Vec<String>,
 }
 
 #[derive(Deserialize)]
@@ -124,6 +137,7 @@ fn error_code(err: &Error) -> &'static str {
         Error::VerificationFailed => "verification_failed",
         Error::UnsafePath => "unsafe_path",
         Error::OutputExists => "output_exists",
+        Error::UnsupportedName(_) => "unsupported_name",
     }
 }
 
@@ -253,19 +267,19 @@ fn generate_passphrase() -> String {
     passphrase::generate(passphrase::DEFAULT_WORDS).to_string()
 }
 
-/// Whether new files also get a recovery slot.
+/// The ID of the recovery key that new files are also sealed to, if one is in use.
 #[tauri::command]
-fn recovery_status() -> bool {
-    matches!(recovery::load_public(), Ok(Some(_)))
+fn recovery_status() -> Option<String> {
+    recovery::load_public().ok().flatten().map(|public| public.id())
 }
 
 /// Creates a recovery key, remembers its public half, and returns the secret half once.
 /// The secret is never stored by the app.
 #[tauri::command]
-fn recovery_create() -> Result<String, String> {
+fn recovery_create() -> Result<CreatedKey, String> {
     let key = RecoveryKey::generate();
     recovery::save_public(&key.public()).map_err(|err| err.to_string())?;
-    Ok(key.to_text().to_string())
+    Ok(CreatedKey { key: key.to_text().to_string(), id: key.public().id() })
 }
 
 #[tauri::command]
@@ -277,6 +291,7 @@ fn recovery_disable() -> Result<(), String> {
 #[tauri::command]
 async fn save_recovery_key(app: AppHandle, key: String) -> Result<bool, String> {
     let key = Zeroizing::new(key);
+    let id = RecoveryKey::parse(&key).map_err(|_| "invalid_recovery_key")?.public().id();
     let Some(path) = app
         .dialog()
         .file()
@@ -288,7 +303,8 @@ async fn save_recovery_key(app: AppHandle, key: String) -> Result<bool, String> 
         return Ok(false);
     };
     let text = Zeroizing::new(format!(
-        "Topal Encryption recovery key\r\n\r\n{}\r\n\r\n\
+        "Topal Encryption recovery key\r\n\r\n{}\r\n\r\nKey ID: {id}\r\n\
+         The app shows the ID of the key in use when you encrypt. It must be this one.\r\n\r\n\
          Anyone who has this key can open the files it protects without the password.\r\n\
          Keep it somewhere safe, away from the PC that holds the encrypted files.\r\n",
         *key
@@ -380,6 +396,13 @@ async fn start(
             skipped: summary.skipped,
             failed: summary.failures.len(),
             cancelled: summary.cancelled,
+            programs: summary
+                .program_outputs
+                .iter()
+                .take(MAX_PROGRAMS_REPORTED)
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect(),
             failures: summary
                 .failures
                 .into_iter()
@@ -388,6 +411,10 @@ async fn start(
                     path: path.display().to_string(),
                     code: error_code(&err),
                     reason: err.to_string(),
+                    detail: match &err {
+                        Error::UnsupportedName(name) => Some(name.clone()),
+                        _ => None,
+                    },
                 })
                 .collect(),
             warnings: scan.warnings,

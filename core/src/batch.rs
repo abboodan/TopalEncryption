@@ -12,6 +12,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
+use std::sync::Mutex;
 
 use rand::rngs::OsRng;
 use rand::RngCore;
@@ -138,6 +139,11 @@ pub struct Summary {
     pub skipped: usize,
     pub cancelled: bool,
     pub failures: Vec<(PathBuf, Error)>,
+    /// Files decrypted to a program-type name (`.exe`, `.dll`, `.lnk`...) that the name
+    /// of the encrypted file did not show. The real name is stored inside an encrypted
+    /// file, so `photo.jpg.topal` from someone else can produce `setup.exe`; callers
+    /// should point these out.
+    pub program_outputs: Vec<PathBuf>,
 }
 
 enum Outcome {
@@ -212,6 +218,15 @@ pub fn scan(mode: Mode, paths: &[PathBuf], options: &Options) -> Scan {
                     folder: true,
                     file_count: entries.iter().filter(|entry| !entry.is_dir).count(),
                 }),
+                // Kept as an item so that the run reports it as a failure with its
+                // reason, rather than the folder silently dropping out of the batch.
+                Err(Error::UnsupportedName(_)) => scan.items.push(Item {
+                    source: path.clone(),
+                    size: 0,
+                    rel_dir: PathBuf::new(),
+                    folder: true,
+                    file_count: 0,
+                }),
                 Err(err) => scan.warnings.push(format!("{}: {err}", path.display())),
             }
             continue;
@@ -245,6 +260,27 @@ pub fn scan(mode: Mode, paths: &[PathBuf], options: &Options) -> Scan {
     scan
 }
 
+/// The error every read returns once the batch is cancelled.
+#[derive(Debug)]
+struct Cancelled;
+
+impl std::fmt::Display for Cancelled {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("cancelled")
+    }
+}
+
+impl std::error::Error for Cancelled {}
+
+fn cancelled() -> io::Error {
+    io::Error::other(Cancelled)
+}
+
+/// Whether `err` is a file abandoned because of cancelling, not something that went wrong.
+fn is_cancelled(err: &Error) -> bool {
+    matches!(err, Error::Io(err) if err.get_ref().is_some_and(|inner| inner.is::<Cancelled>()))
+}
+
 struct CountingReader<'a> {
     inner: File,
     progress: &'a Progress,
@@ -255,12 +291,28 @@ struct CountingReader<'a> {
 impl Read for CountingReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
         if self.progress.cancel.load(Ordering::Relaxed) {
-            return Err(io::Error::other("cancelled"));
+            return Err(cancelled());
         }
         let n = self.inner.read(buf)?;
         self.counted.fetch_add(n as u64, Ordering::Relaxed);
         self.progress.bytes.fetch_add(n as u64, Ordering::Relaxed);
         Ok(n)
+    }
+}
+
+/// Fails every read once the batch is cancelled. Unpacking a folder asks for its next
+/// entry through this, so a folder of very many entries stops between two of them.
+struct StopOnCancel<'a, R> {
+    inner: R,
+    progress: &'a Progress,
+}
+
+impl<R: Read> Read for StopOnCancel<'_, R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.progress.cancel.load(Ordering::Relaxed) {
+            return Err(cancelled());
+        }
+        self.inner.read(buf)
     }
 }
 
@@ -275,6 +327,133 @@ fn same_content<R: Read>(content: &mut DecryptReader<R>, plain: &Path) -> Result
         }
     }
     Ok(file.read(&mut [0u8; 1])? == 0)
+}
+
+/// Flushes a finished output to the disk. Always done before the output gets its final
+/// name: a later run treats a file with that name as complete and skips it, and with
+/// `delete_source` the source is removed next. Without this, a power cut shortly after
+/// could leave the name on a file whose content never reached the disk.
+fn sync_output(file: &File) -> io::Result<()> {
+    file.sync_all()
+}
+
+/// Extensions Windows runs, loads or follows when the file is opened.
+const PROGRAM_EXTENSIONS: [&str; 25] = [
+    "exe", "dll", "com", "scr", "pif", "cpl", "msi", "msp", "bat", "cmd", "ps1", "vbs", "vbe",
+    "js", "jse", "wsf", "wsh", "hta", "jar", "lnk", "url", "reg", "inf", "sys", "ocx",
+];
+
+fn is_program(name: &str) -> bool {
+    Path::new(name)
+        .extension()
+        .is_some_and(|ext| PROGRAM_EXTENSIONS.iter().any(|known| ext.eq_ignore_ascii_case(known)))
+}
+
+/// The alternate data stream in which Windows records that a file came from elsewhere
+/// (the internet, an email attachment), which is what makes SmartScreen and Office's
+/// Protected View check it before opening.
+#[cfg(windows)]
+fn zone_stream(path: &Path) -> PathBuf {
+    let mut stream = path.as_os_str().to_owned();
+    stream.push(":Zone.Identifier");
+    stream.into()
+}
+
+/// The download mark of `source`, if it has one.
+fn read_zone(source: &Path) -> Option<Vec<u8>> {
+    #[cfg(windows)]
+    return fs::read(zone_stream(source)).ok().filter(|zone| zone.len() <= 4096);
+    #[cfg(not(windows))]
+    {
+        let _ = source;
+        None
+    }
+}
+
+/// Gives `dest`, and every file inside it if it is a folder, the download mark of the
+/// encrypted file it came out of. Best effort: not every file system has streams.
+fn write_zone(dest: &Path, zone: &[u8]) {
+    #[cfg(windows)]
+    for entry in WalkDir::new(dest).into_iter().flatten() {
+        if entry.file_type().is_file() {
+            let _ = fs::write(zone_stream(entry.path()), zone);
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = (dest, zone);
+}
+
+/// Held open inside a temporary folder for as long as it is being filled.
+const LOCK_NAME: &str = "lock";
+/// The folder inside a temporary folder that becomes the output.
+const STAGING_NAME: &str = "content";
+/// Without a way to ask whether a file is open elsewhere, leftovers are judged by age.
+#[cfg(not(windows))]
+const STALE_AFTER: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Whether `name` is exactly what we name temporary files: the prefix and six characters.
+fn is_temp_name(name: &str) -> bool {
+    name.strip_prefix(TEMP_PREFIX)
+        .is_some_and(|rest| rest.len() == 6 && rest.bytes().all(|byte| byte.is_ascii_alphanumeric()))
+}
+
+/// Whether some program, possibly another copy of this one, is still writing `file`.
+/// Anything unclear counts as in use: a leftover is only removed when it is certain.
+fn in_use(file: &Path) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        // Asking for the file with no sharing fails while anyone else has it open.
+        OpenOptions::new().read(true).share_mode(0).open(file).is_err()
+    }
+    #[cfg(not(windows))]
+    {
+        let age = fs::metadata(file).and_then(|meta| meta.modified()).ok().and_then(|at| at.elapsed().ok());
+        !age.is_some_and(|age| age > STALE_AFTER)
+    }
+}
+
+/// Removes what an earlier run left in `dir` when it was killed or the power went out:
+/// half-written outputs under temporary names. When decrypting those hold plaintext,
+/// so they should not stay behind. Temporary files of a run that is still going are
+/// recognised by being open, and left alone. Best effort: errors are ignored.
+fn remove_stale_temps(dir: &Path) {
+    let Ok(entries) = fs::read_dir(dir) else { return };
+    for entry in entries.flatten() {
+        if !is_temp_name(&entry.file_name().to_string_lossy()) {
+            continue;
+        }
+        let path = entry.path();
+        let Ok(kind) = entry.file_type() else { continue };
+        if kind.is_file() {
+            if !in_use(&path) {
+                let _ = fs::remove_file(&path);
+            }
+        } else if kind.is_dir() {
+            // A folder being filled keeps its lock file open. One without a lock file
+            // is either a leftover or was created this very moment, so give it a minute.
+            let lock = path.join(LOCK_NAME);
+            let stale = if lock.exists() {
+                !in_use(&lock)
+            } else {
+                fs::metadata(&path)
+                    .and_then(|meta| meta.modified())
+                    .ok()
+                    .and_then(|at| at.elapsed().ok())
+                    .is_some_and(|age| age > std::time::Duration::from_secs(60))
+            };
+            if stale {
+                let _ = fs::remove_dir_all(&path);
+            }
+        }
+    }
+}
+
+/// Where the header of `source` is kept while its password is being changed.
+fn header_backup(source: &Path) -> PathBuf {
+    let mut name = source.as_os_str().to_owned();
+    name.push(".header-backup");
+    name.into()
 }
 
 fn persist(temp: tempfile::NamedTempFile, dest: &Path, force: bool) -> Result<()> {
@@ -295,9 +474,21 @@ struct Runner<'a> {
     encryptor: Option<Encryptor>,
     decryptor: Option<Decryptor>,
     progress: &'a Progress,
+    /// Files this run has decrypted to, so that `force` never lets one source overwrite
+    /// what another source of the same run has just produced.
+    outputs: Mutex<HashSet<String>>,
+    /// See [`Summary::program_outputs`].
+    program_outputs: Mutex<Vec<PathBuf>>,
 }
 
 impl Runner<'_> {
+    /// Reserves `dest` for the calling item. `false` if another item of this run took it.
+    fn claim(&self, dest: &Path) -> bool {
+        // Compared without case, as Windows compares file names.
+        let key = dest.to_string_lossy().to_lowercase();
+        self.outputs.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).insert(key)
+    }
+
     fn encryptor(&self) -> &Encryptor {
         self.encryptor.as_ref().expect("this mode has an encryptor")
     }
@@ -342,10 +533,33 @@ impl Runner<'_> {
         result
     }
 
-    /// Syncs a finished encrypted file and proves it decrypts back to `written` bytes.
+    /// Reads decrypted content to its authenticated end. A folder is also walked entry
+    /// by entry, so that passing means it can really be unpacked. Returns the byte count.
+    fn read_through<R: Read>(kind: Kind, content: &mut DecryptReader<R>) -> Result<u64> {
+        let mut total = 0u64;
+        if kind == Kind::Folder {
+            struct Counted<'a, R>(&'a mut R, &'a mut u64);
+            impl<R: Read> Read for Counted<'_, R> {
+                fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+                    let n = self.0.read(buf)?;
+                    *self.1 += n as u64;
+                    Ok(n)
+                }
+            }
+            archive::check(Counted(content, &mut total))?;
+        } else {
+            while let Some(chunk) = content.next_chunk()? {
+                total += chunk.len() as u64;
+            }
+        }
+        Ok(total)
+    }
+
+    /// Proves that a finished, synced encrypted file decrypts back to `written` bytes
+    /// of `expected`, and for a folder that every entry in it can be unpacked.
     fn verify_sealed(&self, temp: &tempfile::NamedTempFile, written: u64, expected: u64) -> Result<()> {
-        temp.as_file().sync_all()?;
-        let verified = self.decryptor().decrypt(temp.reopen()?, io::sink())?;
+        let mut opened = self.decryptor().open(temp.reopen()?)?;
+        let verified = Self::read_through(opened.kind, &mut opened.content)?;
         if verified != written || written != expected {
             return Err(Error::VerificationFailed);
         }
@@ -385,6 +599,7 @@ impl Runner<'_> {
             reader,
             temp.as_file_mut(),
         )?;
+        sync_output(temp.as_file())?;
         if self.options.delete_source {
             self.verify_sealed(&temp, written, item.size)?;
         }
@@ -408,6 +623,7 @@ impl Runner<'_> {
             packer,
             temp.as_file_mut(),
         )?;
+        sync_output(temp.as_file())?;
         if self.options.delete_source {
             self.verify_sealed(&temp, written, written)?;
         }
@@ -430,28 +646,50 @@ impl Runner<'_> {
         let mut opened = self.decryptor().open(self.open_counted(&item.source, counted)?)?;
         let dir = self.dest_dir(item);
         // The recorded name comes from the file itself: use it only as a plain name.
-        let name = opened
-            .name
-            .take()
-            .filter(|name| archive::is_safe_name(name))
-            .unwrap_or_else(|| fallback_name(&item.source));
-        let dest = dir.join(name);
+        let stored = opened.name.take().filter(|name| archive::is_safe_name(name));
+        // What the encrypted file's own name leads the user to expect.
+        let shown = fallback_name(&item.source);
+        let expected = stored.as_ref().is_none_or(|name| name.to_lowercase() == shown.to_lowercase());
+        let name = stored.unwrap_or(shown);
+        let dest = dir.join(&name);
+        let zone = read_zone(&item.source);
+        // `force` is consent to replace the output the user can see coming. A name
+        // that only the inside of the file knows could be aimed at any other file in
+        // the folder, so such an output is never written over an existing file.
+        let force = self.options.force && expected;
 
         if opened.kind == Kind::Folder {
             if dest.exists() {
                 return Ok(Outcome::Skipped);
             }
             fs::create_dir_all(&dir)?;
-            // Removed with everything in it on every early return below.
+            // Removed with everything in it on every return below. The lock file stays
+            // open until then, which tells another run that this folder is not a leftover.
             let temp = tempfile::Builder::new().prefix(TEMP_PREFIX).tempdir_in(&dir)?;
-            archive::unpack(&mut opened.content, temp.path())?;
-            let temp = temp.keep();
-            if let Err(err) = fs::rename(&temp, &dest) {
-                let _ = fs::remove_dir_all(&temp);
-                return Err(if dest.exists() { Error::OutputExists } else { err.into() });
+            let _lock = File::create(temp.path().join(LOCK_NAME))?;
+            let staging = temp.path().join(STAGING_NAME);
+            fs::create_dir(&staging)?;
+            // Synced for the same reason as `sync_output`, file by file.
+            // The whole archive may already be in memory, so cancelling is checked here
+            // and not only where the encrypted file is read.
+            let content = StopOnCancel { inner: &mut opened.content, progress: self.progress };
+            archive::unpack_synced(content, &staging)?;
+            // Take the name first, in the one way that cannot replace anything: creating
+            // a folder fails if a file or folder of that name appeared in the meantime.
+            // Renaming alone would silently replace a file.
+            match fs::create_dir(&dest) {
+                Ok(()) => {}
+                Err(err) if err.kind() == io::ErrorKind::AlreadyExists => return Err(Error::OutputExists),
+                Err(err) => return Err(err.into()),
+            }
+            if fs::rename(&staging, &dest).is_err() {
+                // Systems that cannot rename onto an empty folder: give the name back
+                // and rename the ordinary way.
+                fs::remove_dir(&dest)?;
+                fs::rename(&staging, &dest)?;
             }
         } else {
-            if !self.options.force && dest.exists() {
+            if !force && dest.exists() {
                 // As when encrypting: finish the deletion an interrupted run left undone.
                 if self.options.delete_source && same_content(&mut opened.content, &dest)? {
                     drop(opened);
@@ -460,15 +698,28 @@ impl Runner<'_> {
                 }
                 return Ok(Outcome::Skipped);
             }
+            // Two encrypted files can hold the same original name. `force` is consent
+            // to replace what was there before this run, not what this run wrote: the
+            // second one is reported and its source is kept.
+            if !self.claim(&dest) {
+                return Err(Error::OutputExists);
+            }
             fs::create_dir_all(&dir)?;
             let mut temp = tempfile::Builder::new().prefix(TEMP_PREFIX).tempfile_in(&dir)?;
             while let Some(chunk) = opened.content.next_chunk()? {
                 temp.as_file_mut().write_all(chunk)?;
             }
-            if self.options.delete_source {
-                temp.as_file().sync_all()?;
+            sync_output(temp.as_file())?;
+            persist(temp, &dest, force)?;
+            if !expected && is_program(&name) {
+                self.program_outputs
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner())
+                    .push(dest.clone());
             }
-            persist(temp, &dest, self.options.force)?;
+        }
+        if let Some(zone) = &zone {
+            write_zone(&dest, zone);
         }
         // The source is still open for reading, which would block deleting it on Windows.
         drop(opened);
@@ -480,23 +731,58 @@ impl Runner<'_> {
 
     fn verify(&self, item: &Item, counted: &AtomicU64) -> Result<Outcome> {
         let mut opened = self.decryptor().open(self.open_counted(&item.source, counted)?)?;
-        while opened.content.next_chunk()?.is_some() {}
+        Self::read_through(opened.kind, &mut opened.content)?;
         Ok(Outcome::Done)
     }
 
-    /// Only the header is rewritten. It is at most 210 bytes, written with a single call
-    /// at the start of the file, so it sits inside one disk sector and is replaced as a
-    /// unit: a power cut leaves either the old header or the new one.
+    /// Only the header is rewritten, in place. The old header is first saved beside the
+    /// file and synced, and removed once the new one is on the disk, so if the write is
+    /// ever cut short (power, a network drive going away) the next password change finds
+    /// the saved header and repairs the file from it. The saved bytes hold nothing that
+    /// the file itself does not show.
     fn change_password(&self, item: &Item) -> Result<Outcome> {
         if self.progress.cancel.load(Ordering::Relaxed) {
-            return Err(io::Error::other("cancelled").into());
+            return Err(cancelled().into());
         }
+        let backup = header_backup(&item.source);
         let mut file = OpenOptions::new().read(true).write(true).open(&item.source)?;
-        let header = self.encryptor().rewrap(self.decryptor(), &mut file)?;
+        let mut current = vec![0u8; crate::MAX_HEADER_LEN];
+        let len = crate::read_full(&mut file, &mut current)?;
+        current.truncate(len);
+
+        let header = match self.encryptor().rewrap(self.decryptor(), &current[..]) {
+            Ok(header) => {
+                let mut saved = File::create(&backup)?;
+                saved.write_all(&current)?;
+                saved.sync_all()?;
+                header
+            }
+            // The header does not open. If an earlier change was interrupted, the one
+            // saved then may; it is kept as it is until this change has succeeded.
+            Err(err) => match fs::read(&backup) {
+                Ok(saved) => self.header_from_backup(&saved, &mut file).map_err(|_| err)?,
+                Err(_) => return Err(err),
+            },
+        };
         file.seek(SeekFrom::Start(0))?;
         file.write_all(&header)?;
         file.sync_all()?;
+        let _ = fs::remove_file(&backup);
         Ok(Outcome::Done)
+    }
+
+    /// The new header for `file` made from a saved one, but only if the saved header
+    /// really belongs to this file: its key must decrypt the file's first chunk. A
+    /// header from any other file would otherwise replace the only copy of the key.
+    fn header_from_backup(&self, saved: &[u8], file: &mut File) -> Result<Vec<u8>> {
+        let header = self.encryptor().rewrap(self.decryptor(), saved)?;
+        if saved.len() < header.len() {
+            return Err(Error::Corrupted);
+        }
+        file.seek(SeekFrom::Start(header.len() as u64))?;
+        let whole = io::Cursor::new(&saved[..header.len()]).chain(&mut *file);
+        self.decryptor().open(whole)?.content.next_chunk()?;
+        Ok(header)
     }
 }
 
@@ -523,7 +809,16 @@ pub fn run(
             (Some(Encryptor::new(new_password, params)?), Some(unlock.decryptor()))
         }
     };
-    let runner = Runner { mode, options, encryptor, decryptor, progress };
+    let runner =
+        Runner {
+            mode,
+            options,
+            encryptor,
+            decryptor,
+            progress,
+            outputs: Mutex::new(HashSet::new()),
+            program_outputs: Mutex::new(Vec::new()),
+        };
 
     // Two sources that would produce the same output (same name from different places,
     // sent to one output folder): the first wins, the rest are reported, not skipped.
@@ -538,6 +833,13 @@ pub fn run(
                 })
         })
         .collect();
+
+    if matches!(mode, Mode::Encrypt | Mode::Decrypt) {
+        let dirs: HashSet<PathBuf> = items.iter().map(|item| runner.dest_dir(item)).collect();
+        for dir in &dirs {
+            remove_stale_temps(dir);
+        }
+    }
 
     let mut pool = rayon::ThreadPoolBuilder::new();
     if let Some(jobs) = options.jobs {
@@ -565,13 +867,16 @@ pub fn run(
     });
 
     let cancelled = progress.cancel.load(Ordering::Relaxed);
-    let mut summary = Summary { cancelled, ..Summary::default() };
+    let program_outputs =
+        runner.program_outputs.into_inner().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut summary = Summary { cancelled, program_outputs, ..Summary::default() };
     for (item, result) in items.iter().zip(results) {
         match result {
             Some(Ok(Outcome::Done)) => summary.done += 1,
             Some(Ok(Outcome::Skipped)) => summary.skipped += 1,
-            // Once cancelled, errors are files abandoned mid-way, not real failures.
-            Some(Err(_)) if cancelled => {}
+            // A file abandoned mid-way by cancelling is not a failure. Anything else
+            // that went wrong is still reported, cancelled or not.
+            Some(Err(err)) if is_cancelled(&err) => {}
             Some(Err(err)) => summary.failures.push((item.source.clone(), err)),
             None => {}
         }

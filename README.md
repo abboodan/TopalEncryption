@@ -90,7 +90,7 @@ topal-cli passphrase
 | Option | Meaning |
 |---|---|
 | `--delete-source` | Delete each source once its output is written and verified |
-| `--force` | Overwrite output files that already exist instead of skipping them |
+| `--force` | Overwrite output files that already exist instead of skipping them. When decrypting, only an output named after the encrypted file is overwritten |
 | `-o, --output <DIR>` | Write outputs to this folder, keeping the folder structure |
 | `--hide-names` | Random output names, and each folder packed into a single file |
 | `--no-recovery` | Do not add the recovery key to these files |
@@ -146,16 +146,39 @@ All integers are little-endian.
 | 162 | 48 | Recovery slot: per-file key, wrapped for the recovery key (only with flag `2`) |
 | … | … | Encrypted chunks, each chunk size + 16-byte tag |
 
-Bytes 0–57 are authenticated as associated data of the password-wrapped key, so the header
-cannot be altered without the file being rejected. The recovery slot authenticates the same
-fields except the password salt and costs, which is what allows a password change without
-the recovery key.
+Bytes 0–57 are authenticated as associated data of the password-wrapped key, so they
+cannot be altered without the password being rejected. The recovery slot authenticates the
+same fields except the password salt and costs, which is what allows a password change
+without the recovery key. Each way of opening a file checks its own slot only: damage to
+the recovery slot is not noticed when opening or verifying with the password, and the
+other way round.
 
 The encrypted stream starts with the original name (2-byte length, then UTF-8), followed by
 the file content. For a folder container it is followed by a sequence of entries instead:
 kind (`1` file, `2` folder, `0` end), 2-byte path length, relative path, and for files an
 8-byte size and the content. Nothing is compressed. When unpacking, every path component is
 checked so that a crafted file cannot write outside its own folder.
+
+Details needed to write another reader:
+
+- **Chunk nonces.** Chunk *n* (from 0) uses the 24-byte nonce `prefix ‖ n as 32-bit
+  big-endian ‖ last`, where `last` is `1` for the final chunk and `0` otherwise, and no
+  associated data. A file with no content still has one (empty) final chunk.
+- **Recovery slot.** `shared = X25519(ephemeral secret, recovery public key)`. The wrapping
+  key is HKDF-SHA256 with salt `ephemeral public ‖ recovery public`, input `shared`, info
+  `topal recovery key wrap v2`, 32 bytes out. The per-file key is sealed with
+  XChaCha20-Poly1305 under an all-zero nonce (the key is used once) with associated data
+  `"TOPAL recovery slot" ‖ version ‖ flags ‖ chunk size ‖ stream nonce prefix`.
+- **Recovery key ID.** The first eight bytes of `SHA-256("TOPAL-PUB-ID" ‖ recovery public
+  key)`, in upper-case hex, in groups of four.
+- **Recovery key text.** `TOPAL-KEY-` followed by base32 (RFC 4648, no padding, grouped in
+  fives) of the 32-byte X25519 secret and the first two bytes of
+  `SHA-256("TOPAL-KEY" ‖ secret)`.
+
+[`tools/topal_decrypt.py`](tools/topal_decrypt.py) is a reader written from this description
+alone, in about a hundred lines of Python on top of libsodium and the reference Argon2. It
+shares no code with the app, and [`tools/check.py`](tools/check.py) uses it to confirm that
+files written by `topal-cli` are exactly what is documented here.
 
 Version 1 files (no flags byte, no recorded name, no recovery slot) are still read.
 
@@ -167,8 +190,24 @@ Please read these before trusting Topal Encryption with data you cannot afford t
   forgotten password means the data is gone. That is the point of the design.
 - **A recovery key is as powerful as the password.** Anyone who has it can open every file
   encrypted while it was on. Keep it on paper or in a password manager, away from the files.
+- **Check the recovery key ID.** The public half of the key is an ordinary file on your PC.
+  If something replaced it, new files would open with someone else's key instead of yours.
+  The app and `topal-cli` show the ID of the key in use whenever you encrypt
+  (`XXXX-XXXX-XXXX-XXXX`); it must be the ID that was shown, and saved, with your key.
+- **Verify with the recovery key too.** `verify` with the password proves the password
+  opens the file; it says nothing about the recovery slot. If you rely on a recovery key
+  for a backup, run verify once with the key as well.
+- **Links are not packed.** Shortcuts to other places inside a folder (symbolic links,
+  junctions) are skipped when encrypting, and left where they are.
 - **Changing a password does not reach old copies.** A backup made before the change still
   opens with the old password.
+- **An encrypted file from someone else decides its own output name.** The original name
+  is stored inside, so `photo.jpg.topal` can decrypt to a file of any name and type in the
+  same folder. Topal Encryption never lets that name leave the folder or replace an existing
+  file, refuses names built to display as something else, tells you when a program came
+  out under a name you could not see, and passes Windows' "downloaded from the internet"
+  mark on to what it decrypts. Still, treat what comes out of a stranger's file as you
+  would any download.
 - **Your password is the weak link.** The encryption is only as strong as the password.
   Use a long passphrase.
 - **File names and folder structure are visible unless you tick *Hide file names*.** By
