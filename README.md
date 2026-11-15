@@ -30,11 +30,13 @@ Without the password, nobody can open the files. Not even you.
 - **Change the password in seconds.** Only the small header of each file is rewritten, not the content, even for a 50 GB file.
 - **Verify.** Check that a backup still opens and is undamaged, without writing anything.
 - **Save anywhere.** Write the results next to the originals or into another folder or drive, keeping the folder structure.
+- **See what was written.** The results list the files a job wrote, and *Show in folder* opens Explorer with them selected.
 - **Passphrase generator.** One click for a strong passphrase made of six common words.
 - **Explorer right-click menu.** The installer adds *Encrypt with Topal Encryption* to files and folders; double-clicking a `.topal` file opens it for decryption.
 - **English and Arabic** interface, switchable at any time.
 - **Android app** that reads and writes the same files: see [Android app](#android-app).
-- **Small.** The installer is a few megabytes. No account, no network access, no telemetry.
+- **Signed updates.** *About → Check for updates* finds a new version. The installed app downloads it, checks its signature against a key built into the app, and installs it when you say so. The portable `TopalEncryption.exe` only tells you that a new version exists.
+- **Small.** The installer is a few megabytes. No account, no telemetry. The only connection the app ever makes is to GitHub, to check for an update and download it, and only when you press *Check for updates* or switch on the daily check (off by default).
 
 ## Download
 
@@ -54,6 +56,11 @@ Windows 10 and 11.
 The APK is not from an app store, so Android asks you to allow installing apps from the
 browser or file manager you open it with.
 
+From version 0.4.0 on, both apps update themselves from **About → Check for updates**.
+Version 0.3.0 has no updater: install 0.4.0 over it by hand once. A release also holds
+`latest.json`, which the desktop app reads when it checks for updates; there is nothing in
+it to download.
+
 ## Usage
 
 ### Desktop app
@@ -66,7 +73,8 @@ Encrypting `photo.jpg` creates `photo.jpg.topal` next to it. Decrypting does the
 
 Options when encrypting: delete the originals once each encrypted file has been checked,
 hide file names, and choose another folder for the results. The **Recovery key** button in
-the header creates or turns off the recovery key. With the installer, you can also
+the header creates or turns off the recovery key, and **About** shows the version and
+checks for updates. With the installer, you can also
 right-click files or folders in Explorer (on Windows 11, under *Show more options*).
 
 ### Command line
@@ -115,24 +123,41 @@ same `topal-core` Rust code as the desktop app and the CLI.
 <img src="assets/android.png" width="780" alt="Topal Encryption on Android: choosing files to encrypt, encrypting an 8 GB file, the results, and the Arabic interface">
 </div>
 
-- **Encrypt, Decrypt and Verify**, for files or a whole folder chosen with Android's own
-  pickers, or sent to the app with **Share** from the gallery or a file manager. Tapping a
-  `.topal` file in a file manager opens it in the app, ready to decrypt.
+- **Encrypt, Decrypt, Verify and Change password**, for files or a whole folder chosen with
+  Android's own pickers, or sent to the app with **Share** from the gallery or a file
+  manager. Tapping a `.topal` file in a file manager opens it in the app, ready to decrypt.
+  The app remembers the mode you used last.
 - Results are saved to `Download/Topal Encryption`, or to a folder you choose. A result only
   appears under its name once it is complete; cancelling or a damaged file leaves nothing behind.
+- The results list the files that were written, with **Share** to send them to another app
+  and **Open folder** to see them in the file manager.
+- **Recovery key from the PC.** Import the public half (`recovery-public.txt` from
+  `%APPDATA%\TopalEncryption` on the PC, or its text) under *Settings*, check that the key
+  ID matches the one on the PC, and every file encrypted on the phone can also be opened
+  with your recovery key. The secret half never needs to be on the phone.
+- **Change password** rewrites only the file's header, as on the PC, for files the app is
+  allowed to write to. A file it can only read (one that was shared to it, for example) is
+  reported and left untouched.
 - Folder containers made on the PC with *Hide file names* are unpacked into a new folder,
   never over an existing one, with the same path checks as on the PC.
 - Large files run in the background with a progress notification, and can be cancelled.
 - Passphrase generator, and opening files with a recovery key created on the PC.
 - A file decrypted to an app installer (`.apk`) under a name the encrypted file did not show
   is pointed out in the results, like programs are on the PC.
-- The app's screen is kept out of screenshots, screen recordings and the recent apps preview.
+- The app's screen is kept out of screenshots, screen recordings and the recent apps
+  preview, unless you switch on *Allow screenshots* in the settings.
+- **Updates.** *About → Check for updates* asks GitHub for the newest version, downloads it,
+  and hands it to Android's installer, which asks you to confirm. The download is accepted
+  only if it is this app, a newer version, and signed with the same key as the app you are
+  running.
+- **Network.** The app connects to github.com for that one thing only, when you press
+  *Check for updates* or switch on the daily check (off by default). Nothing about you or
+  the phone is sent.
+- **Your originals are never deleted.**
 - English and Arabic. Needs Android 13 or later.
-- **No network permission**: the app cannot connect to anything. **Your originals are never
-  deleted.**
 
-Not in the Android app yet: changing a password, hiding file names when encrypting, and
-creating a recovery key (files encrypted on the phone have no recovery slot).
+Not in the Android app yet: hiding file names when encrypting, and creating a recovery key
+(create it on the PC and import its public half).
 
 ## How it works
 
@@ -242,6 +267,12 @@ Please read these before trusting Topal Encryption with data you cannot afford t
   out under a name you could not see, and passes Windows' "downloaded from the internet"
   mark on to what it decrypts. Still, treat what comes out of a stranger's file as you
   would any download.
+- **Updates are signed.** The desktop app accepts an update only if it is signed with the
+  project's update key (its public half is built into the app) for exactly the version
+  announced, and downloads it only from github.com. The Android app accepts one only if it
+  is the same app, a higher version, and signed with the certificate of the app that is
+  running; Android's installer checks the signature again and asks you. An unsigned or
+  altered file is discarded and nothing is installed.
 - **Your password is the weak link.** The encryption is only as strong as the password.
   Use a long passphrase.
 - **File names and folder structure are visible unless you tick *Hide file names*.** By
@@ -272,9 +303,14 @@ cargo build --release -p topal     # CLI      -> target/release/topal-cli.exe
 
 cd gui
 npm install
-npx tauri build                    # app      -> target/release/TopalEncryption.exe
+npx tauri build --config src-tauri/dry-run.conf.json
+                                   # app      -> target/release/TopalEncryption.exe
                                    # installer -> target/release/bundle/nsis/
 ```
+
+A plain `npx tauri build` also signs the installer as an update, which needs the project's
+private update key (`TAURI_SIGNING_PRIVATE_KEY`); the configuration above leaves that step
+out. A copy you build yourself still checks for the project's updates.
 
 ### Android app
 
