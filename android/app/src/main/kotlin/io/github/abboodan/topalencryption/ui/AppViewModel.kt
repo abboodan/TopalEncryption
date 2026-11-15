@@ -13,27 +13,36 @@ import androidx.lifecycle.viewModelScope
 import io.github.abboodan.topalencryption.R
 import io.github.abboodan.topalencryption.core.Native
 import io.github.abboodan.topalencryption.engine.JobRequest
+import io.github.abboodan.topalencryption.engine.JobState
 import io.github.abboodan.topalencryption.engine.Jobs
 import io.github.abboodan.topalencryption.engine.MediaStoreTarget
 import io.github.abboodan.topalencryption.engine.Mode
+import io.github.abboodan.topalencryption.engine.RecoveryPublic
+import io.github.abboodan.topalencryption.engine.RecoveryStore
 import io.github.abboodan.topalencryption.engine.Root
 import io.github.abboodan.topalencryption.engine.Scan
 import io.github.abboodan.topalencryption.engine.Scanner
 import io.github.abboodan.topalencryption.engine.TreeTarget
 import io.github.abboodan.topalencryption.engine.isTopal
+import io.github.abboodan.topalencryption.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+/** The screens beside the main one, reached from the menu in the header. */
+enum class Screen { MAIN, SETTINGS, ABOUT }
 
 /**
  * What the setup screen shows. It outlives rotation and language changes; secrets stay
  * in memory only and are never written to saved state.
  */
 class AppViewModel(private val app: Application) : AndroidViewModel(app) {
-    private val prefs = app.getSharedPreferences("settings", Context.MODE_PRIVATE)
+    private val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    var mode by mutableStateOf(Mode.ENCRYPT)
+    var screen by mutableStateOf(Screen.MAIN)
+
+    var mode by mutableStateOf(savedMode())
         private set
     val roots = mutableStateListOf<Root>()
     var scan by mutableStateOf<Scan?>(null)
@@ -41,7 +50,12 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     var scanning by mutableStateOf(false)
         private set
 
+    /** What encrypts or opens the files; when changing a password, the current one. */
     var password by mutableStateOf("")
+        private set
+
+    /** The password files get when changing it. */
+    var newPassword by mutableStateOf("")
         private set
     var repeat by mutableStateOf("")
     var passwordVisible by mutableStateOf(false)
@@ -59,6 +73,21 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     /** A string resource to show under the form. */
     var error by mutableStateOf<Int?>(null)
 
+    /** The public half of the recovery key new files are also sealed to, if one was imported. */
+    var recovery by mutableStateOf<RecoveryPublic?>(null)
+        private set
+
+    /** What is typed or pasted into the import field of the settings. */
+    var recoveryInput by mutableStateOf("")
+
+    /** A string resource to show under the import field. */
+    var recoveryError by mutableStateOf<Int?>(null)
+
+    var allowScreenshots by mutableStateOf(prefs.getBoolean(KEY_SCREENSHOTS, false))
+        private set
+    var dailyUpdateCheck by mutableStateOf(prefs.getBoolean(KEY_DAILY_CHECK, false))
+        private set
+
     /** Documents another app shared with us: access to them is temporary. */
     private var shared: List<Uri> = emptyList()
     private var scanJob: Job? = null
@@ -71,29 +100,57 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             outputTree = saved
             outputName = Scanner.treeName(app.contentResolver, saved)
         }
+        recovery = RecoveryStore.load(app)
         viewModelScope.launch(Dispatchers.IO) {
-            if (Jobs.state.value !is io.github.abboodan.topalencryption.engine.JobState.Running) {
+            if (Jobs.state.value !is JobState.Running) {
                 MediaStoreTarget(app).removeLeftovers()
             }
         }
+        Updater.restore(app)
     }
 
+    private fun savedMode(): Mode =
+        Mode.entries.firstOrNull { it.name == prefs.getString(KEY_MODE, null) } ?: Mode.ENCRYPT
+
+    /** The mode picked by hand is the one the app opens in next time. */
     fun selectMode(value: Mode) {
         if (mode == value) return
+        prefs.edit().putString(KEY_MODE, value.name).apply()
+        switchTo(value)
+    }
+
+    private fun switchTo(value: Mode) {
+        // A passphrase generated for one mode is not carried into another.
+        if (generated) {
+            if (mode == Mode.ENCRYPT) password = "" else newPassword = ""
+            repeat = ""
+            generated = false
+            passwordVisible = false
+        }
         mode = value
         error = null
         rescan()
     }
 
+    /** Whether files are opened with the recovery key instead of the password. */
+    val byKey: Boolean get() = mode != Mode.ENCRYPT && useRecovery
+
     fun typePassword(value: String) {
         password = value
+        if (mode == Mode.ENCRYPT) generated = false
+        error = null
+    }
+
+    fun typeNewPassword(value: String) {
+        newPassword = value
         generated = false
         error = null
     }
 
+    /** The passphrase goes where the new password of this mode is typed. */
     fun generate() {
         val phrase = Native.generatePassphrase()
-        password = phrase
+        if (mode == Mode.CHANGE) newPassword = phrase else password = phrase
         repeat = phrase
         passwordVisible = true
         generated = true
@@ -112,9 +169,13 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         rescan()
     }
 
-    /** Files arriving through the Share sheet replace the selection. */
+    /**
+     * Files arriving through the Share sheet, or tapped in a file manager, replace the
+     * selection and pick the mode for this once: the remembered one is not changed.
+     */
     fun receive(uris: List<Uri>) {
         if (uris.isEmpty()) return
+        screen = Screen.MAIN
         roots.clear()
         roots += uris.distinct().map(Root::Document)
         shared = uris
@@ -124,8 +185,8 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             val allTopal = withContext(Dispatchers.IO) {
                 uris.all { uri -> Scanner.describe(app.contentResolver, uri)?.first?.let(::isTopal) == true }
             }
-            mode = if (allTopal) Mode.DECRYPT else Mode.ENCRYPT
-            rescan()
+            val wanted = if (allTopal) Mode.DECRYPT else Mode.ENCRYPT
+            if (mode == wanted) rescan() else switchTo(wanted)
         }
     }
 
@@ -170,17 +231,19 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         get() {
             val items = scan?.items
             if (scanning || items.isNullOrEmpty()) return false
-            return if (mode != Mode.ENCRYPT && useRecovery) recoveryKey.isNotBlank() else password.isNotEmpty()
+            val opens = if (byKey) recoveryKey.isNotBlank() else password.isNotEmpty()
+            return opens && (mode != Mode.CHANGE || newPassword.isNotEmpty())
         }
 
     /** Checks the form. Returns `false`, with [error] set, if the job cannot start as it is. */
     fun check(): Boolean {
         if (scan?.items.isNullOrEmpty()) return false
-        val byKey = mode != Mode.ENCRYPT && useRecovery
         error = when {
             byKey && !Native.isRecoveryKey(recoveryKey) -> R.string.err_invalid_recovery_key
             !byKey && password.isEmpty() -> R.string.err_empty_password
             mode == Mode.ENCRYPT && password != repeat -> R.string.password_mismatch
+            mode == Mode.CHANGE && newPassword.isEmpty() -> R.string.err_empty_password
+            mode == Mode.CHANGE && newPassword != repeat -> R.string.password_mismatch
             else -> null
         }
         return error == null
@@ -190,19 +253,29 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
     fun start(): Boolean {
         if (!check()) return false
         val items = scan?.items.orEmpty()
-        val byKey = mode != Mode.ENCRYPT && useRecovery
         val tree = outputTree
+        val writes = mode == Mode.ENCRYPT || mode == Mode.DECRYPT
         val target = when {
-            mode == Mode.VERIFY -> null
+            !writes -> null
             tree != null -> TreeTarget(app, tree)
             else -> MediaStoreTarget(app)
         }
         val label = when {
-            mode == Mode.VERIFY -> null
+            !writes -> null
             tree != null -> outputName
             else -> app.getString(R.string.output_default)
         }
-        val request = JobRequest(mode, items, password, recoveryKey.trim().takeIf { byKey }, target, label)
+        val request = JobRequest(
+            mode = mode,
+            items = items,
+            password = password,
+            recoveryKey = recoveryKey.trim().takeIf { byKey },
+            newPassword = newPassword.takeIf { mode == Mode.CHANGE },
+            // Read again from storage: what is sealed into the files is what is stored, not what a screen showed.
+            recoveryPublic = if (mode == Mode.ENCRYPT) RecoveryStore.load(app).also { recovery = it } else null,
+            target = target,
+            targetLabel = label,
+        )
         val started = try {
             Jobs.start(app, request, shared)
         } catch (_: Exception) {
@@ -220,6 +293,7 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         shared = emptyList()
         scan = null
         password = ""
+        newPassword = ""
         repeat = ""
         recoveryKey = ""
         passwordVisible = false
@@ -227,7 +301,68 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
         error = null
     }
 
-    private companion object {
-        const val KEY_OUTPUT = "output_tree"
+    /** Takes the public half of a recovery key, pasted or read from `recovery-public.txt`. */
+    fun importRecovery(text: String) {
+        recoveryError = try {
+            val key = RecoveryStore.parse(text)
+            RecoveryStore.save(app, key)
+            recovery = key
+            recoveryInput = ""
+            null
+        } catch (_: Exception) {
+            // The secret half opens files: it has no business on the phone's storage.
+            if (Native.isRecoveryKey(text)) R.string.recovery_secret_refused else R.string.recovery_invalid
+        }
+    }
+
+    /** Reads the key from a document picked by the user. A key file is one short line. */
+    fun importRecoveryFile(uri: Uri) {
+        viewModelScope.launch {
+            val text = withContext(Dispatchers.IO) {
+                runCatching {
+                    app.contentResolver.openInputStream(uri)?.use { input ->
+                        String(input.readNBytes(MAX_KEY_FILE_BYTES), Charsets.UTF_8)
+                    }
+                }.getOrNull()
+            }
+            if (text == null) recoveryError = R.string.recovery_unreadable else importRecovery(text)
+        }
+    }
+
+    fun removeRecovery() {
+        RecoveryStore.clear(app)
+        recovery = null
+        recoveryError = null
+    }
+
+    fun allowScreenshots(value: Boolean) {
+        allowScreenshots = value
+        prefs.edit().putBoolean(KEY_SCREENSHOTS, value).apply()
+    }
+
+    fun dailyUpdateCheck(value: Boolean) {
+        dailyUpdateCheck = value
+        prefs.edit().putBoolean(KEY_DAILY_CHECK, value).apply()
+    }
+
+    /** Called when the app comes to the front: looks for an update if the user asked for a daily check. */
+    fun dailyCheck() {
+        if (!dailyUpdateCheck) return
+        val now = System.currentTimeMillis()
+        val last = prefs.getLong(KEY_LAST_CHECK, 0)
+        if (now - last in 0 until DAY_MILLIS) return
+        prefs.edit().putLong(KEY_LAST_CHECK, now).apply()
+        Updater.check(app, quiet = true)
+    }
+
+    companion object {
+        const val PREFS = "settings"
+        const val KEY_SCREENSHOTS = "allow_screenshots"
+        private const val KEY_OUTPUT = "output_tree"
+        private const val KEY_MODE = "mode"
+        private const val KEY_DAILY_CHECK = "update_daily"
+        private const val KEY_LAST_CHECK = "update_last_check"
+        private const val DAY_MILLIS = 24 * 60 * 60 * 1000L
+        private const val MAX_KEY_FILE_BYTES = 4096
     }
 }

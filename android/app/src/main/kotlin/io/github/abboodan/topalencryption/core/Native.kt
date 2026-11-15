@@ -36,7 +36,7 @@ interface DecryptSink {
 
 /**
  * `topal-core`, through the bridge in `android/rust`. Every function blocks; none may be
- * called on the main thread except the last three.
+ * called on the main thread except the last four.
  *
  * Handles are freed exactly once, after every call using them has returned. Descriptors
  * passed in must be detached (`ParcelFileDescriptor.detachFd`): the call closes them.
@@ -46,8 +46,11 @@ object Native {
         System.loadLibrary("topal_android")
     }
 
-    /** Derives the key for a batch: about a second and 256 MiB. */
-    external fun newEncryptor(password: String): Long
+    /**
+     * Derives the key for a batch: about a second and 256 MiB. With [recoveryPublic], the
+     * public half of a recovery key, every file encrypted also gets a recovery slot.
+     */
+    external fun newEncryptor(password: String, recoveryPublic: String?): Long
     external fun freeEncryptor(handle: Long)
 
     /** With [recoveryKey], files are opened with it and [password] is ignored. */
@@ -68,7 +71,20 @@ object Native {
 
     external fun verify(decryptor: Long, control: Long, input: Int, size: Long)
 
+    /**
+     * Gives the document behind [file], open for reading and writing, the password of
+     * [encryptor]; [decryptor] holds what opens it now. Only its header is rewritten. The
+     * header being replaced is kept in [savedDir] under [key] until the new one is in place.
+     */
+    external fun changePassword(encryptor: Long, decryptor: Long, control: Long, file: Int, size: Long, savedDir: String, key: String)
+
     external fun generatePassphrase(): String
     external fun isRecoveryKey(text: String): Boolean
+
+    /**
+     * Checks the public half of a recovery key, pasted or read from `recovery-public.txt`.
+     * Returns its ID and its canonical text on two lines; throws `invalid_recovery_key`.
+     */
+    external fun importRecoveryPublic(text: String): String
     external fun isSafeName(name: String): Boolean
 }

@@ -17,6 +17,11 @@ val workspaceVersion: String = Regex("(?m)^version\\s*=\\s*\"(\\d+\\.\\d+\\.\\d+
     ?: throw GradleException("No version found in the workspace Cargo.toml")
 val versionParts: List<Int> = workspaceVersion.split('.').map { it.toInt() }
 
+// For testing the in-app update only: `-Ptopal.pretendVersionCode=209` builds an app that
+// looks for updates as if it were that old, so the release already published counts as
+// newer. The About screen says so. Never passed when building a release to publish.
+val pretendVersionCode: Int = (findProperty("topal.pretendVersionCode") as String?)?.toInt() ?: 0
+
 // Release signing is read from android/keystore.properties, which is not in the repository.
 // Without it, release builds are left unsigned.
 val keystoreFile: File = rootProject.file("keystore.properties")
@@ -36,6 +41,7 @@ android {
         targetSdk = 36
         versionCode = versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
         versionName = workspaceVersion
+        buildConfigField("int", "PRETEND_VERSION_CODE", pretendVersionCode.toString())
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -65,6 +71,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 
     compileOptions {

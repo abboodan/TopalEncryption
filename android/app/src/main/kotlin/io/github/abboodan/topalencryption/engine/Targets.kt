@@ -23,6 +23,9 @@ import java.io.IOException
  * failed item, or a killed app, never leaves something that looks complete.
  */
 interface Target {
+    /** The folder everything is written under, as a document a file manager can be asked to show. */
+    val folder: Uri
+
     /** Whether something called [name] is already in [relDir]. */
     fun exists(relDir: List<String>, name: String): Boolean
 
@@ -35,7 +38,9 @@ interface Target {
 interface PendingFile {
     /** A detached descriptor to write the content to. */
     fun detachFd(): Int
-    fun commit()
+
+    /** Gives the output its real name. Returns its address, which can be shared with other apps. */
+    fun commit(): Uri
     fun discard()
 }
 
@@ -62,6 +67,10 @@ private fun detach(resolver: ContentResolver, uri: Uri): Int =
 class MediaStoreTarget(context: Context) : Target {
     private val resolver = context.contentResolver
     private val collection = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+
+    override val folder: Uri = DocumentsContract.buildDocumentUri(
+        "com.android.externalstorage.documents", "primary:${Environment.DIRECTORY_DOWNLOADS}/$FOLDER",
+    )
 
     private fun relativePath(relDir: List<String>): String =
         (listOf(Environment.DIRECTORY_DOWNLOADS, FOLDER) + relDir).joinToString("/", postfix = "/")
@@ -106,7 +115,11 @@ class MediaStoreTarget(context: Context) : Target {
         val uri = insertPending(relDir, name)
         return object : PendingFile {
             override fun detachFd(): Int = detach(resolver, uri)
-            override fun commit() = publish(uri)
+            override fun commit(): Uri {
+                publish(uri)
+                return uri
+            }
+
             override fun discard() {
                 runCatching { resolver.delete(uri, null, null) }
                 runCatching { pruneEmpty(relDir) }
@@ -171,6 +184,8 @@ class MediaStoreTarget(context: Context) : Target {
 class TreeTarget(context: Context, private val tree: Uri) : Target {
     private val resolver = context.contentResolver
     private val rootId = DocumentsContract.getTreeDocumentId(tree)
+
+    override val folder: Uri = DocumentsContract.buildDocumentUri(tree.authority, rootId)
 
     /** Folders of the tree that have been looked up or created, by path. */
     private val dirs = HashMap<List<String>, String>()
@@ -263,9 +278,11 @@ class TreeTarget(context: Context, private val tree: Uri) : Target {
         return create(dirId, mime, name) to false
     }
 
-    private fun rename(dirId: String, part: Uri, name: String) {
-        DocumentsContract.renameDocument(resolver, part, name) ?: throw IOException("Could not finish the output")
+    /** Returns the address of the renamed document: providers may change it with the name. */
+    private fun rename(dirId: String, part: Uri, name: String): Uri {
+        val renamed = DocumentsContract.renameDocument(resolver, part, name) ?: throw IOException("Could not finish the output")
         synchronized(this) { listing(dirId)[name.lowercase()] = "" }
+        return renamed
     }
 
     @Synchronized
@@ -280,9 +297,7 @@ class TreeTarget(context: Context, private val tree: Uri) : Target {
         val (uri, part) = createPart(dirId, mimeOf(name), name)
         return object : PendingFile {
             override fun detachFd(): Int = detach(resolver, uri)
-            override fun commit() {
-                if (part) rename(dirId, uri, name)
-            }
+            override fun commit(): Uri = if (part) rename(dirId, uri, name) else uri
 
             override fun discard() {
                 runCatching { DocumentsContract.deleteDocument(resolver, uri) }

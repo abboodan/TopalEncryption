@@ -92,7 +92,86 @@
     <string name="err_unsupported_version">أُنشئ بإصدار أحدث من Topal Encryption</string>
     <string name="err_invalid_kdf_params">الملف يطلب ذاكرة أو عملاً أكثر من المسموح</string>
     <string name="err_io">تعذّرت قراءة الملف أو كتابته</string>
+    <string name="err_read_only">هذا الملف يمكن قراءته فقط من هنا، فلا يمكن تغيير كلمة سره. لم يُمسّ. اختره بـ «إضافة ملفات» أو «إضافة مجلد» من مكان يسمح بالتعديل.</string>
     <string name="err_internal">حدث خطأ داخل التطبيق</string>
+
+    <string name="mode_change">تغيير كلمة السر</string>
+    <string name="change_hint">يعطي الملفات المشفّرة كلمة سر جديدة دون إعادة تشفيرها، فيستغرق ثوانيَ. أي نسخة أقدم من الملف تبقى تُفتح بكلمة السر القديمة.</string>
+    <string name="password_current">كلمة السر الحالية</string>
+    <string name="password_new">كلمة السر الجديدة</string>
+    <string name="start_change">تغيير كلمة السر لـ %s</string>
+    <string name="working_change">جارٍ تغيير كلمة السر…</string>
+    <string name="done_change">تم تغييرها</string>
+
+    <string name="menu">القائمة</string>
+    <string name="settings">الإعدادات</string>
+    <string name="about">حول</string>
+    <string name="back">رجوع</string>
+
+    <string name="share">مشاركة</string>
+    <string name="open_folder">فتح المجلد</string>
+    <string name="note_first_outputs">يُعرض أول %s.</string>
+    <string name="note_share_first">المشاركة ترسل أول %s.</string>
+    <string name="result_recovery">هذه الملفات تُفتح أيضاً بمفتاح الاسترداد %s.</string>
+
+    <string name="recovery_button">مفتاح الاسترداد</string>
+    <string name="recovery_line_on">مفتاح الاسترداد %s مفعّل: هذه الملفات تُفتح به أيضاً.</string>
+    <string name="recovery_what">مفتاح الاسترداد طريقة ثانية لفتح ملفاتك إذا نسيت كلمة السر. أنشئه في Topal Encryption على حاسوبك، ثم انقل نصفه العام إلى هنا.</string>
+    <string name="recovery_where" formatted="false">على الحاسوب، النصف العام هو الملف recovery-public.txt في ‎%APPDATA%\\TopalEncryption‎. اختر ذلك الملف أو الصق نصّه.</string>
+    <string name="recovery_public_note">النصف العام يضيف مفتاح الاسترداد إلى الملفات التي تشفّرها فقط، ولا يفتح أي شيء. أبقِ المفتاح السري نفسه خارج الهاتف.</string>
+    <string name="recovery_on">مفتاح الاسترداد مفعّل. الملفات التي تشفّرها من الآن تُفتح به أيضاً.</string>
+    <string name="recovery_id">معرّف المفتاح (يجب أن يطابق المعرّف الظاهر على حاسوبك):</string>
+    <string name="recovery_remove_note">إزالته لا تزيله من الملفات التي تحمله.</string>
+    <string name="recovery_paste">المفتاح العام (TOPAL-PUB-…)</string>
+    <string name="recovery_import">استيراد</string>
+    <string name="recovery_import_file">اختيار ملف…</string>
+    <string name="recovery_remove">إزالة</string>
+    <string name="recovery_invalid">هذا ليس مفتاح استرداد عاماً صالحاً. يبدأ بـ TOPAL-PUB؛ تحقق من أخطاء الكتابة.</string>
+    <string name="recovery_secret_refused">هذا هو مفتاح الاسترداد السري، الذي يفتح ملفاتك. لم يُحفظ. استورد المفتاح العام (recovery-public.txt) بدلاً منه.</string>
+    <string name="recovery_unreadable">تعذّرت قراءة الملف.</string>
+
+    <string name="setting_screenshots">السماح بلقطات الشاشة</string>
+    <string name="setting_screenshots_note">عند الإيقاف، لا يظهر التطبيق في لقطات الشاشة ولا تسجيلها ولا في معاينة التطبيقات الأخيرة، لأن كلمات السر ومفاتيح الاسترداد تُكتب هنا.</string>
+    <string name="setting_daily">البحث عن تحديثات مرة في اليوم</string>
+    <string name="setting_daily_note">عند الإيقاف، يبحث التطبيق عن التحديثات فقط حين تضغط «البحث عن تحديثات». عند التفعيل، يسأل GitHub أيضاً مرة في اليوم عند فتحه. لا يُنزَّل شيء حتى تطلب ذلك.</string>
+    <string name="on">مفعّل</string>
+    <string name="off">متوقف</string>
+
+    <string name="about_version">الإصدار %s</string>
+    <string name="about_description">يحمي الملفات والمجلدات على هاتفك بكلمة سر.\nالتشفير نفسه المفتوح المصدر في تطبيق الحاسوب، فالملفات تُفتح على الاثنين.</string>
+    <string name="about_developer">المطوّر</string>
+    <string name="about_source">الكود المصدري</string>
+    <string name="about_license">الرخصة</string>
+    <string name="about_report">الإبلاغ عن ثغرة</string>
+    <string name="about_network">يستخدم التطبيق الإنترنت لشيء واحد فقط: البحث عن إصدار جديد على GitHub وتنزيله، حين تطلب ذلك. لا يُنصَّب التحديث إلا إذا كان موقّعاً بالمفتاح نفسه الذي وُقّع به هذا التطبيق، وأندرويد يسألك قبل التنصيب.</string>
+
+    <string name="check_updates">البحث عن تحديثات</string>
+    <string name="update_checking">جارٍ البحث…</string>
+    <string name="update_latest">لديك أحدث إصدار.</string>
+    <string name="update_available">الإصدار %1$s متوفر (%2$s).</string>
+    <string name="update_available_plain">الإصدار %s متوفر.</string>
+    <string name="update_download">تنزيل</string>
+    <string name="update_downloading">جارٍ تنزيل الإصدار %s…</string>
+    <string name="update_progress">%1$s من %2$s</string>
+    <string name="update_verifying">جارٍ التحقق من التنزيل…</string>
+    <string name="update_ready">نُزّل الإصدار %s، وهو موقّع بالمفتاح نفسه الذي وُقّع به هذا التطبيق.</string>
+    <string name="update_install">تنصيب</string>
+    <string name="update_installing">بانتظار أندرويد لتنصيبه…</string>
+    <string name="update_allow">يجب إخبار أندرويد بأن Topal Encryption مسموح له بتنصيب تحديثه. اسمح بذلك في الشاشة التي فُتحت، ثم ارجع واضغط «تنصيب» مرة أخرى.</string>
+    <string name="update_busy">انتظر حتى تنتهي العملية الجارية أولاً.</string>
+    <string name="update_banner_available">الإصدار %s متوفر</string>
+    <string name="update_banner_ready">الإصدار %s جاهز للتنصيب</string>
+    <string name="update_pretend">نسخة اختبار: تبحث عن التحديثات كأنها رمز الإصدار %s.</string>
+    <string name="update_err_network">تعذّر الوصول إلى GitHub. تحقق من الاتصال وحاول مرة أخرى.</string>
+    <string name="update_err_unexpected">لم يُفهم ردّ GitHub. حاول لاحقاً، أو نزّل التحديث من صفحة المشروع.</string>
+    <string name="update_err_no_download">أحدث إصدار ليس له تنزيل لأندرويد بعد. حاول لاحقاً.</string>
+    <string name="update_err_too_large">التنزيل أكبر من أن يكون تحديثاً. تم حذفه.</string>
+    <string name="update_err_storage">تعذّر حفظ التنزيل. أفرغ بعض المساحة وحاول مرة أخرى.</string>
+    <string name="update_err_not_an_app">التنزيل تالف أو ليس تطبيقاً. تم حذفه.</string>
+    <string name="update_err_wrong_app">التنزيل تطبيق آخر. تم حذفه.</string>
+    <string name="update_err_not_newer">التنزيل ليس أحدث من هذا الإصدار. تم حذفه.</string>
+    <string name="update_err_wrong_signature">التنزيل غير موقّع بالمفتاح الذي وُقّع به Topal Encryption. تم حذفه ولم يُنصَّب شيء.</string>
+    <string name="update_err_install">تعذّر على أندرويد تنصيب التحديث.</string>
 
     <string name="channel_progress">التقدّم</string>
 

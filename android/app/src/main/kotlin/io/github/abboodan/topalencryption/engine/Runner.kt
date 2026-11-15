@@ -1,12 +1,15 @@
 package io.github.abboodan.topalencryption.engine
 
 import android.content.Context
+import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import io.github.abboodan.topalencryption.core.DecryptSink
 import io.github.abboodan.topalencryption.core.Native
 import io.github.abboodan.topalencryption.core.TopalException
+import java.io.File
 import java.io.IOException
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.Dispatchers
@@ -22,16 +25,29 @@ import kotlinx.coroutines.withContext
 class JobRequest(
     val mode: Mode,
     val items: List<Item>,
+    /** Encrypts, or opens. When changing a password, the current one. */
     val password: String,
-    /** Opens files instead of the password when set. Decrypt and Verify only. */
-    val recoveryKey: String?,
-    /** `null` for Verify, which writes nothing. */
-    val target: Target?,
+    /** Opens files instead of the password when set. Not used when encrypting. */
+    val recoveryKey: String? = null,
+    /** The password files get when changing it. */
+    val newPassword: String? = null,
+    /** The public half of the recovery key files are also sealed to when encrypting. */
+    val recoveryPublic: RecoveryPublic? = null,
+    /** `null` for Verify and Change password, which write no new file. */
+    val target: Target? = null,
     /** Shown in the results: where the outputs went. */
-    val targetLabel: String?,
+    val targetLabel: String? = null,
 )
 
 data class Failure(val name: String, val code: String, val detail: String)
+
+/** Something this job wrote. */
+data class Output(
+    /** Its name, with the folders it sits in below the output folder. */
+    val name: String,
+    /** What other apps can be handed to read it; `null` for a folder. */
+    val uri: Uri?,
+)
 
 data class Summary(
     val mode: Mode,
@@ -51,6 +67,12 @@ data class Summary(
      * someone else can produce `update.apk`; the results point these out.
      */
     val installers: List<String> = emptyList(),
+    /** What was written, in the order of the selection. */
+    val outputs: List<Output> = emptyList(),
+    /** The folder the outputs are under, for a file manager to show. */
+    val folder: Uri? = null,
+    /** The ID of the recovery key the encrypted files can also be opened with. */
+    val recoveryId: String? = null,
 ) {
     /** Every file was refused for the same reason, [code]: nothing was opened at all. */
     fun allFailedWith(code: String): Boolean =
@@ -60,7 +82,7 @@ data class Summary(
 data class Progress(val files: Int, val bytes: Long, val preparing: Boolean)
 
 private sealed interface Outcome {
-    data object Done : Outcome
+    data class Done(val output: Output? = null) : Outcome
     data object Skipped : Outcome
     data object Cancelled : Outcome
     data class Failed(val code: String, val detail: String) : Outcome
@@ -113,11 +135,15 @@ class Runner(private val context: Context, private val request: JobRequest) {
         val extraBytes = AtomicLong()
         try {
             onProgress(Progress(0, 0, preparing = true))
-            if (request.mode == Mode.ENCRYPT) {
-                encryptor = Native.newEncryptor(request.password)
-            } else {
+            when (request.mode) {
+                Mode.ENCRYPT -> encryptor = Native.newEncryptor(request.password, request.recoveryPublic?.text)
+                Mode.CHANGE -> {
+                    // A recovery slot is carried over as it is: the new header needs no key for it.
+                    encryptor = Native.newEncryptor(request.newPassword!!, null)
+                    decryptor = Native.newDecryptor(request.password, request.recoveryKey)
+                }
                 // The key is derived when the first file is opened, and kept for the rest.
-                decryptor = Native.newDecryptor(request.password, request.recoveryKey)
+                Mode.DECRYPT, Mode.VERIFY -> decryptor = Native.newDecryptor(request.password, request.recoveryKey)
             }
             val outcomes = coroutineScope {
                 val ticker = launch {
@@ -153,6 +179,9 @@ class Runner(private val context: Context, private val request: JobRequest) {
                 millis = SystemClock.elapsedRealtime() - started,
                 savedTo = request.targetLabel,
                 installers = synchronized(installers) { installers.toList() },
+                outputs = outcomes.mapNotNull { (it as? Outcome.Done)?.output },
+                folder = request.target?.folder,
+                recoveryId = request.recoveryPublic?.id.takeIf { request.mode == Mode.ENCRYPT },
             )
         } finally {
             synchronized(lock) {
@@ -171,8 +200,9 @@ class Runner(private val context: Context, private val request: JobRequest) {
                 Mode.DECRYPT -> decrypt(item, control, decryptor)
                 Mode.VERIFY -> {
                     Native.verify(decryptor, control, open(item).detachFd(), item.size)
-                    Outcome.Done
+                    Outcome.Done()
                 }
+                Mode.CHANGE -> change(item, control, encryptor, decryptor, extraBytes)
             }
         } catch (err: TopalException) {
             if (err.code == "cancelled") Outcome.Cancelled else Outcome.Failed(err.code, err.detail)
@@ -183,6 +213,9 @@ class Runner(private val context: Context, private val request: JobRequest) {
 
     private fun open(item: Item): ParcelFileDescriptor =
         resolver.openFileDescriptor(item.uri, "r") ?: throw IOException("Could not open ${item.name}")
+
+    /** How an output is listed: with the folders it sits in below the output folder. */
+    private fun shown(relDir: List<String>, name: String): String = (relDir + name).joinToString("/")
 
     private fun encrypt(item: Item, control: Long, encryptor: Long, extraBytes: AtomicLong): Outcome {
         val target = request.target!!
@@ -210,13 +243,12 @@ class Runner(private val context: Context, private val request: JobRequest) {
                 throw err
             }
             Native.encrypt(encryptor, control, input.detachFd(), output, item.name, item.size)
-            pending.commit()
+            return Outcome.Done(Output(shown(item.relDir, name), pending.commit()))
         } catch (err: Exception) {
             pending.discard()
             release(item.relDir, name)
             throw err
         }
-        return Outcome.Done
     }
 
     /** The name a decrypted file takes when the encrypted one does not carry a usable name. */
@@ -259,16 +291,40 @@ class Runner(private val context: Context, private val request: JobRequest) {
         try {
             val written = Native.decrypt(decryptor, control, open(item).detachFd(), item.size, sink)
             if (!written) return Outcome.Skipped
-            file?.commit()
+            val address = file?.commit()
             folder?.commit()
             installer?.let { synchronized(installers) { installers += it } }
+            val name = shown(item.relDir, claimedName!!)
+            // A folder has no address of its own to share: it is listed, with a mark that tells it apart.
+            return Outcome.Done(if (folder != null) Output("$name/", null) else Output(name, address))
         } catch (err: Throwable) {
             file?.discard()
             folder?.discard()
             claimedName?.let { release(item.relDir, it) }
             throw err
         }
-        return Outcome.Done
+    }
+
+    /**
+     * Rewrites the header of [item] in place. That needs the document open for writing,
+     * which a shared file, or one from a provider that only lends copies, does not allow:
+     * those are reported, and never touched.
+     */
+    private fun change(item: Item, control: Long, encryptor: Long, decryptor: Long, extraBytes: AtomicLong): Outcome {
+        val file = try {
+            resolver.openFileDescriptor(item.uri, "rw")
+        } catch (_: Exception) {
+            null
+        }
+        if (file == null) {
+            extraBytes.addAndGet(item.size)
+            // Tell a file that cannot be changed from one that cannot be reached at all.
+            open(item).close()
+            return Outcome.Failed("read_only", "")
+        }
+        val saved = File(context.filesDir, SAVED_HEADERS)
+        Native.changePassword(encryptor, decryptor, control, file.detachFd(), item.size, saved.path, savedName(item.uri))
+        return Outcome.Done()
     }
 
     private fun isInstaller(name: String): Boolean =
@@ -280,5 +336,13 @@ class Runner(private val context: Context, private val request: JobRequest) {
 
         /** Files in flight at once. Storage, not the cipher, is what limits the speed. */
         val WORKERS = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+
+        /** Where the header of a file is kept while its password is being changed. */
+        const val SAVED_HEADERS = "header-backups"
+
+        /** A file name for the header saved for [uri]: its address says nothing once hashed. */
+        fun savedName(uri: Uri): String =
+            MessageDigest.getInstance("SHA-256").digest(uri.toString().toByteArray())
+                .joinToString("") { "%02x".format(it) }
     }
 }

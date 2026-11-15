@@ -40,6 +40,7 @@ fun Context.working(mode: Mode): String = getString(
         Mode.ENCRYPT -> R.string.working_encrypt
         Mode.DECRYPT -> R.string.working_decrypt
         Mode.VERIFY -> R.string.working_verify
+        Mode.CHANGE -> R.string.working_change
     },
 )
 
@@ -57,6 +58,7 @@ fun Context.errorText(code: String): String = getString(
         "unsupported_version" -> R.string.err_unsupported_version
         "invalid_kdf_params" -> R.string.err_invalid_kdf_params
         "io" -> R.string.err_io
+        "read_only" -> R.string.err_read_only
         else -> R.string.err_internal
     },
 )

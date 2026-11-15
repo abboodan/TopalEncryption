@@ -95,7 +95,88 @@
     <string name="err_unsupported_version">Made by a newer version of Topal Encryption</string>
     <string name="err_invalid_kdf_params">The file asks for more memory or work than is allowed</string>
     <string name="err_io">The file could not be read or written</string>
+    <string name="err_read_only">This file can only be read from here, so its password cannot be changed. It was not touched. Choose it with “Add files” or “Add folder” from a place that allows changes.</string>
     <string name="err_internal">Something went wrong inside the app</string>
+
+    <string name="mode_change">Change password</string>
+    <string name="change_hint">Gives encrypted files a new password without re-encrypting them, so it takes seconds. An older copy of a file still opens with the old password.</string>
+    <string name="password_current">Current password</string>
+    <string name="password_new">New password</string>
+    <string name="start_change">Change password of %s</string>
+    <string name="working_change">Changing password…</string>
+    <string name="done_change">changed</string>
+
+    <string name="menu">Menu</string>
+    <string name="settings">Settings</string>
+    <string name="about">About</string>
+    <string name="back">Back</string>
+
+    <string name="share">Share</string>
+    <string name="open_folder">Open folder</string>
+    <string name="note_first_outputs">Showing the first %s.</string>
+    <string name="note_share_first">Share sends the first %s.</string>
+    <string name="result_recovery">These files can also be opened with recovery key %s.</string>
+
+    <string name="recovery_button">Recovery key</string>
+    <string name="recovery_line_on">Recovery key %s is on: these files can also be opened with it.</string>
+    <string name="recovery_what">A recovery key is a second way to open your files if you forget the password. Create it in Topal Encryption on your PC, then bring its public half here.</string>
+    <string name="recovery_where" formatted="false">On the PC, the public half is the file recovery-public.txt in %APPDATA%\\TopalEncryption. Choose that file, or paste its text.</string>
+    <string name="recovery_public_note">The public half only adds the recovery key to the files you encrypt. It cannot open anything. Keep the secret key itself off the phone.</string>
+    <string name="recovery_on">A recovery key is on. Files you encrypt from now on can also be opened with it.</string>
+    <string name="recovery_id">Key ID (must match the one shown on your PC):</string>
+    <string name="recovery_remove_note">Removing it does not take it out of files that already have it.</string>
+    <string name="recovery_paste">Public key (TOPAL-PUB-…)</string>
+    <string name="recovery_import">Import</string>
+    <string name="recovery_import_file">Choose file…</string>
+    <string name="recovery_remove">Remove</string>
+    <string name="recovery_invalid">This is not a valid public recovery key. It starts with TOPAL-PUB; check it for typing mistakes.</string>
+    <string name="recovery_secret_refused">This is the secret recovery key, the one that opens your files. It was not stored. Import the public key (recovery-public.txt) instead.</string>
+    <string name="recovery_unreadable">The file could not be read.</string>
+
+    <string name="setting_screenshots">Allow screenshots</string>
+    <string name="setting_screenshots_note">When off, the app is kept out of screenshots, screen recordings and the recent apps preview, because passwords and recovery keys are typed here.</string>
+    <string name="setting_daily">Check for updates once a day</string>
+    <string name="setting_daily_note">When off, the app looks for updates only when you press “Check for updates”. When on, it also asks GitHub once a day when you open it. Nothing is downloaded until you say so.</string>
+    <string name="on">On</string>
+    <string name="off">Off</string>
+
+    <string name="about_version">Version %s</string>
+    <string name="about_description">Password-protects files and folders on your phone.\nThe same open-source encryption as the desktop app, so files open on both.</string>
+    <string name="about_developer">Developer</string>
+    <string name="about_developer_name" translatable="false">Abdullah Topal</string>
+    <string name="about_source">Source code</string>
+    <string name="about_license">License</string>
+    <string name="about_license_name" translatable="false">MIT</string>
+    <string name="about_report">Report a vulnerability</string>
+    <string name="about_network">The app uses the internet for one thing only: looking for a new version on GitHub and downloading it, when you ask. An update is installed only if it is signed with the same key as this app, and Android asks you before installing.</string>
+
+    <string name="check_updates">Check for updates</string>
+    <string name="update_checking">Checking…</string>
+    <string name="update_latest">You have the latest version.</string>
+    <string name="update_available">Version %1$s is available (%2$s).</string>
+    <string name="update_available_plain">Version %s is available.</string>
+    <string name="update_download">Download</string>
+    <string name="update_downloading">Downloading version %s…</string>
+    <string name="update_progress">%1$s of %2$s</string>
+    <string name="update_verifying">Checking the download…</string>
+    <string name="update_ready">Version %s is downloaded, and it is signed with the same key as this app.</string>
+    <string name="update_install">Install</string>
+    <string name="update_installing">Waiting for Android to install it…</string>
+    <string name="update_allow">Android has to be told that Topal Encryption may install its own update. Allow it on the screen that opened, come back, and press Install again.</string>
+    <string name="update_busy">Wait for the running job to finish first.</string>
+    <string name="update_banner_available">Version %s is available</string>
+    <string name="update_banner_ready">Version %s is ready to install</string>
+    <string name="update_pretend">Test build: it looks for updates as if it were version code %s.</string>
+    <string name="update_err_network">GitHub could not be reached. Check the connection and try again.</string>
+    <string name="update_err_unexpected">The answer from GitHub was not understood. Try again later, or get the update from the project page.</string>
+    <string name="update_err_no_download">The newest release has no Android download yet. Try again later.</string>
+    <string name="update_err_too_large">The download is larger than an update can be. It was discarded.</string>
+    <string name="update_err_storage">The download could not be saved. Free some space and try again.</string>
+    <string name="update_err_not_an_app">The download is damaged, or is not an app. It was discarded.</string>
+    <string name="update_err_wrong_app">The download is a different app. It was discarded.</string>
+    <string name="update_err_not_newer">The download is not newer than this version. It was discarded.</string>
+    <string name="update_err_wrong_signature">The download is not signed with the key Topal Encryption is signed with. It was discarded and nothing was installed.</string>
+    <string name="update_err_install">Android could not install the update.</string>
 
     <string name="channel_progress">Progress</string>
 
