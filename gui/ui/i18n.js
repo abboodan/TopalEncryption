@@ -137,6 +137,40 @@ const I18N = {
     "result.noteCancelled": "Files that were not finished were left untouched.",
     "result.noteWrong": "None of the files could be opened. Nothing was changed.",
     "result.noteFirst": "Showing the first {count} failures.",
+    "result.outputs": "Written ({count})",
+    "result.outputsFirst": "Showing the first {count} names.",
+    "result.showInFolder": "Show in folder",
+
+    "about.title": "About",
+    "about.version": "Version",
+    "about.description":
+      "Encrypts files and folders with a password, on your own device.\n" +
+      "Free and open source. No account, no telemetry.",
+    "about.developer": "Developer",
+    "about.source": "Source code",
+    "about.license": "License",
+    "about.vulnerability": "Report a vulnerability",
+    "about.check": "Check for updates",
+    "about.network":
+      "The app connects to GitHub only to check for updates and to download them, and only " +
+      "when you ask or when the daily check is on. It makes no other connection.",
+
+    "update.daily": "Check once a day",
+    "update.dailyNote": "Off unless you turn it on. A new version is never installed without asking you.",
+    "update.checking": "Checking…",
+    "update.current": "You have the latest version.",
+    "update.available": "Version {version} is available. You have {current}.",
+    "update.portable":
+      "Version {version} is available. You have {current}. This is the portable copy, which " +
+      "does not update itself: get the new one from the releases page.",
+    "update.download": "Download and install",
+    "update.downloading": "Downloading version {version}… {percent}",
+    "update.ready":
+      "Version {version} is downloaded and its signature is verified. " +
+      "Installing closes the app and opens the new version.",
+    "update.install": "Install and restart",
+    "update.installing": "Starting the installer…",
+    "update.openReleases": "Open the releases page",
 
     "err.empty_password": "The password cannot be empty.",
     "err.busy": "A job is already running.",
@@ -151,6 +185,14 @@ const I18N = {
     "err.output_exists": "An output with this name already exists",
     "err.unsupported_name": "A name in this folder is too long or not allowed on Windows. Rename it and try again:",
     "err.unsupported_version": "Made by a newer version of Topal Encryption",
+    "err.outputs_gone": "The files are no longer where they were written.",
+    "err.updating": "An update is being downloaded or installed. Wait for it to finish.",
+    "err.update_busy": "A job is running. Finish or cancel it, then update.",
+    "err.update_offline": "Could not reach GitHub. Check the internet connection and try again.",
+    "err.update_bad_signature":
+      "The downloaded file is not signed by Topal Encryption, so it was discarded. Nothing was installed.",
+    "err.update_failed": "The update could not be completed. Nothing was changed.",
+    "err.update_portable": "The portable copy does not update itself.",
 
     units: ["B", "KB", "MB", "GB", "TB"],
     files: (n) => `${fmt(n)} ${n === 1 ? "file" : "files"}`,
@@ -285,6 +327,39 @@ const I18N = {
     "result.noteCancelled": "الملفات التي لم تكتمل بقيت كما هي.",
     "result.noteWrong": "تعذّر فتح أي ملف. لم يتغير شيء.",
     "result.noteFirst": "تُعرض أول {count} حالة فشل.",
+    "result.outputs": "ما كُتب ({count})",
+    "result.outputsFirst": "تُعرض أول {count} اسم.",
+    "result.showInFolder": "إظهار في المجلد",
+
+    "about.title": "حول",
+    "about.version": "الإصدار",
+    "about.description":
+      "يشفّر الملفات والمجلدات بكلمة سر، على جهازك أنت.\n" +
+      "مجاني ومفتوح المصدر. بلا حساب وبلا جمع بيانات.",
+    "about.developer": "المطوّر",
+    "about.source": "الكود المصدري",
+    "about.license": "الرخصة",
+    "about.vulnerability": "الإبلاغ عن ثغرة",
+    "about.check": "البحث عن تحديثات",
+    "about.network":
+      "يتصل التطبيق بـ GitHub فقط للبحث عن التحديثات وتنزيلها، وفقط عندما تطلب ذلك أو " +
+      "عندما يكون الفحص اليومي مفعّلاً. لا يُجري أي اتصال آخر.",
+
+    "update.daily": "البحث مرة في اليوم",
+    "update.dailyNote": "متوقف ما لم تفعّله. لا يُثبَّت أي إصدار جديد دون سؤالك.",
+    "update.checking": "جارٍ البحث…",
+    "update.current": "لديك أحدث إصدار.",
+    "update.available": "الإصدار {version} متوفر. لديك {current}.",
+    "update.portable":
+      "الإصدار {version} متوفر. لديك {current}. هذه النسخة المحمولة ولا تحدّث نفسها: " +
+      "نزّل النسخة الجديدة من صفحة الإصدارات.",
+    "update.download": "تنزيل وتثبيت",
+    "update.downloading": "جارٍ تنزيل الإصدار {version}… {percent}",
+    "update.ready":
+      "نُزّل الإصدار {version} وتم التحقق من توقيعه. التثبيت يغلق التطبيق ثم يفتح الإصدار الجديد.",
+    "update.install": "تثبيت وإعادة التشغيل",
+    "update.installing": "جارٍ تشغيل المثبّت…",
+    "update.openReleases": "فتح صفحة الإصدارات",
 
     "err.empty_password": "لا يمكن أن تكون كلمة السر فارغة.",
     "err.busy": "هناك عملية جارية.",
@@ -299,6 +374,14 @@ const I18N = {
     "err.output_exists": "يوجد ناتج بهذا الاسم من قبل",
     "err.unsupported_name": "يوجد في هذا المجلد اسم طويل جداً أو غير مسموح في Windows. غيّر الاسم ثم أعد المحاولة:",
     "err.unsupported_version": "أُنشئ بإصدار أحدث من Topal Encryption",
+    "err.outputs_gone": "الملفات لم تعد في المكان الذي كُتبت فيه.",
+    "err.updating": "هناك تحديث يُنزَّل أو يُثبَّت. انتظر حتى ينتهي.",
+    "err.update_busy": "هناك عملية جارية. أكملها أو ألغها ثم حدّث.",
+    "err.update_offline": "تعذّر الوصول إلى GitHub. تحقق من اتصال الإنترنت ثم أعد المحاولة.",
+    "err.update_bad_signature":
+      "الملف المنزَّل غير موقّع من Topal Encryption، فتم تجاهله. لم يُثبَّت أي شيء.",
+    "err.update_failed": "تعذّر إكمال التحديث. لم يتغير شيء.",
+    "err.update_portable": "النسخة المحمولة لا تحدّث نفسها.",
 
     units: ["بايت", "ك.ب", "م.ب", "غ.ب", "ت.ب"],
     files: (n) => arabicCount(n, "ملف واحد", "ملفان", "ملفات", "ملف"),

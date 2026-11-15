@@ -43,7 +43,7 @@ header {
 .brand h1 { margin: 0; font-size: 17px; font-weight: 650; letter-spacing: 0.2px; }
 .brand p { margin: 0; color: var(--muted); font-size: 12px; }
 
-.header-actions { display: flex; gap: 8px; }
+.header-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .chip {
   display: flex;
   align-items: center;
@@ -125,7 +125,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-2); 
 .link:hover { text-decoration: underline; }
 
 .selection-head { display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
-#paths, #failures {
+#paths, #failures, #outputs {
   list-style: none;
   margin: 8px 0 0;
   padding: 0;
@@ -143,7 +143,7 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--accent-2); 
   border-bottom: 1px solid var(--line);
   font-size: 12.5px;
 }
-#paths li:last-child, #failures li:last-child { border-bottom: 0; }
+#paths li:last-child, #failures li:last-child, #outputs li:last-child { border-bottom: 0; }
 #paths span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
 #paths button { border: 0; background: none; color: var(--muted); cursor: pointer; font-size: 15px; line-height: 1; }
 #paths button:hover { color: var(--danger); }
@@ -198,7 +198,7 @@ input[type="password"], input[type="text"] {
 .primary:disabled { background: var(--line); color: var(--muted); cursor: not-allowed; }
 
 .progress { height: 10px; border-radius: 5px; background: var(--line); overflow: hidden; }
-#progress-bar {
+#progress-bar, #update-bar {
   height: 100%;
   width: 0;
   border-radius: 5px;
@@ -305,3 +305,31 @@ dialog p { margin: 0; }
   .segmented button { padding: 7px 4px; font-size: 13px; }
   main { padding: 14px 16px 16px; }
 }
+
+/* What a job wrote, on the results screen. */
+#outputs { max-height: 150px; user-select: text; }
+#outputs li { padding: 6px 10px; border-bottom: 1px solid var(--line); font-size: 12.5px; }
+#outputs li code { font: 12px Consolas, monospace; word-break: break-all; unicode-bidi: plaintext; }
+#outputs-box .selection-head { gap: 12px; }
+#outputs-note { margin-top: 6px; }
+
+/* About. */
+.about-head { display: flex; align-items: center; gap: 12px; }
+.about-head strong { display: block; font-size: 16px; font-weight: 650; }
+.about-head span { color: var(--muted); font-size: 12.5px; }
+.about-description { white-space: pre-line; }
+.about-list { display: grid; grid-template-columns: auto 1fr; gap: 6px 16px; margin: 0; align-items: baseline; }
+.about-list dt { color: var(--muted); font-size: 12.5px; font-weight: 600; }
+.about-list dd { margin: 0; }
+.about-list .link, .about-list + div .link { padding-inline: 0; }
+.update-box {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.update-box .dialog-actions { margin-top: 0; }
+#about-dialog { max-height: calc(100vh - 32px); overflow-y: auto; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }

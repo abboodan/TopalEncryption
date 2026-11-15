@@ -20,6 +20,10 @@
         <span id="recovery-dot" class="dot"></span>
         <span data-i18n="recovery.button"></span>
       </button>
+      <button id="open-about" class="chip" type="button">
+        <span id="update-dot" class="dot on" hidden></span>
+        <span data-i18n="about.title"></span>
+      </button>
       <button id="language" class="chip" type="button"></button>
     </div>
   </header>
@@ -146,6 +150,14 @@
       </div>
       <p id="result-note" class="note" hidden></p>
       <ul id="failures" hidden></ul>
+      <div id="outputs-box" hidden>
+        <div class="selection-head">
+          <span id="outputs-title"></span>
+          <button id="show-outputs" class="ghost small" type="button" data-i18n="result.showInFolder"></button>
+        </div>
+        <ul id="outputs"></ul>
+        <p id="outputs-note" class="note" hidden></p>
+      </div>
       <button id="again" class="primary" data-i18n="result.again"></button>
     </section>
   </main>
@@ -193,6 +205,54 @@
     </div>
 
     <p id="recovery-error" class="note error" hidden></p>
+  </dialog>
+
+  <dialog id="about-dialog">
+    <h2 data-i18n="about.title"></h2>
+    <div class="dialog-body">
+      <div class="about-head">
+        <img src="logo.svg" alt="" width="44" height="44">
+        <div>
+          <strong>Topal Encryption</strong>
+          <span><span data-i18n="about.version"></span> <span id="about-version" dir="ltr"></span></span>
+        </div>
+      </div>
+      <p id="about-description" class="about-description"></p>
+      <dl class="about-list">
+        <dt data-i18n="about.developer"></dt>
+        <dd><button class="link" type="button" data-link="developer">Abdullah Topal</button></dd>
+        <dt data-i18n="about.source"></dt>
+        <dd><button class="link" type="button" data-link="source" dir="ltr">github.com/abboodan/TopalEncryption</button></dd>
+        <dt data-i18n="about.license"></dt>
+        <dd>MIT</dd>
+      </dl>
+      <div>
+        <button class="link" type="button" data-link="vulnerability" data-i18n="about.vulnerability"></button>
+      </div>
+
+      <div class="update-box">
+        <p id="update-status" class="note" hidden></p>
+        <div id="update-progress" class="progress" hidden><div id="update-bar"></div></div>
+        <div class="dialog-actions">
+          <button id="update-check" class="ghost" type="button" data-i18n="about.check" autofocus></button>
+          <button id="update-download" class="primary" type="button" data-i18n="update.download" hidden></button>
+          <button id="update-install" class="primary" type="button" data-i18n="update.install" hidden></button>
+          <button id="update-releases" class="primary" type="button" data-i18n="update.openReleases" hidden></button>
+        </div>
+        <label class="check">
+          <input id="daily-check" type="checkbox">
+          <span>
+            <strong data-i18n="update.daily"></strong>
+            <small data-i18n="update.dailyNote"></small>
+          </span>
+        </label>
+      </div>
+
+      <p class="note" data-i18n="about.network"></p>
+      <div class="dialog-actions">
+        <button id="about-close" class="ghost" type="button" data-i18n="close"></button>
+      </div>
+    </div>
   </dialog>
 
   <script src="i18n.js"></script>
