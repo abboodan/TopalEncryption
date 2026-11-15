@@ -8,8 +8,15 @@ name: Release
 # - "Run workflow", or a pull request that changes this file, is a dry run: the same
 #   builds, kept as workflow artifacts, with no release and an unsigned APK.
 #
-# The Android signing key is only used for a tag. It comes from four repository secrets:
-# ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS, ANDROID_KEY_PASSWORD.
+# The signing keys are only used for a tag. They come from repository secrets:
+# - the Android APK: ANDROID_KEYSTORE_BASE64, ANDROID_KEYSTORE_PASSWORD, ANDROID_KEY_ALIAS,
+#   ANDROID_KEY_PASSWORD;
+# - the desktop app's updates: TAURI_SIGNING_PRIVATE_KEY (the content of the key file) and
+#   TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
+#
+# A release also holds `latest.json`, which the installed desktop app reads when it checks
+# for updates: the version, where its installer is, and the installer's signature. The
+# Android app does not read it: it looks at the newest release and at its APK.
 
 on:
   push:
@@ -71,14 +78,28 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
       - name: Test
-        run: cargo test --locked -p topal-core -p topal
+        run: cargo test --locked -p topal-core -p topal -p topal-gui
       - name: Build the command-line tool
         run: cargo build --release --locked -p topal
       - name: Build the app and its installer
         working-directory: gui
+        shell: bash
+        env:
+          # Only a tag gets the key that signs updates.
+          TAURI_SIGNING_PRIVATE_KEY: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ github.ref_type == 'tag' && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
         run: |
           npm ci
-          npx tauri build
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            if [ -z "$TAURI_SIGNING_PRIVATE_KEY" ]; then
+              echo "::error::TAURI_SIGNING_PRIVATE_KEY is not set, so the update cannot be signed."
+              exit 1
+            fi
+            npx tauri build
+          else
+            # Dry run: the same build, without the update signature and without the key.
+            npx tauri build --config src-tauri/dry-run.conf.json
+          fi
       - name: Collect the files
         shell: bash
         run: |
@@ -86,6 +107,36 @@ jobs:
           cp target/release/topal-cli.exe target/release/TopalEncryption.exe dist/
           cp "target/release/bundle/nsis/Topal Encryption_${VERSION}_x64-setup.exe" \
              "dist/TopalEncryption_${VERSION}_x64-setup.exe"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            # What the installed app reads to find this version: see the top of this file.
+            sig=$(tr -d '\r\n' < "target/release/bundle/nsis/Topal Encryption_${VERSION}_x64-setup.exe.sig")
+            if [ -z "$sig" ]; then
+              echo "::error::The installer has no update signature."
+              exit 1
+            fi
+            # The signature must be made with the key whose public half is built into the
+            # app, or no installed copy would accept the update. Both name their key by ID.
+            key_id() { base64 --decode | sed -n 2p | base64 --decode | head -c 10 | tail -c 8 | od -An -tx1 | tr -d ' \n'; }
+            built_in=$(sed -n 's/.*"pubkey"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' gui/src-tauri/tauri.conf.json | head -n 1 | key_id)
+            signed_with=$(printf '%s' "$sig" | key_id)
+            if [ -z "$built_in" ] || [ "$signed_with" != "$built_in" ]; then
+              echo "::error::The update is not signed with the key built into the app."
+              exit 1
+            fi
+            {
+              echo '{'
+              echo "  \"version\": \"${VERSION}\","
+              echo "  \"pub_date\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+              echo '  "platforms": {'
+              echo '    "windows-x86_64": {'
+              echo "      \"signature\": \"${sig}\","
+              echo "      \"url\": \"https://github.com/${GITHUB_REPOSITORY}/releases/download/v${VERSION}/TopalEncryption_${VERSION}_x64-setup.exe\""
+              echo '    }'
+              echo '  }'
+              echo '}'
+            } > dist/latest.json
+            cat dist/latest.json
+          fi
           ls -l dist
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -201,6 +252,7 @@ jobs:
             echo "| \`TopalEncryption.exe\` | Portable desktop app, no installation |"
             echo "| \`topal-cli.exe\` | Command-line tool |"
             echo "| \`TopalEncryption_${VERSION}_android.apk\` | Android app (Android 13 or later) |"
+            echo "| \`latest.json\` | Read by the desktop app when it checks for updates; nothing to download |"
             echo
             echo "SHA-256:"
             echo
@@ -209,6 +261,8 @@ jobs:
             echo '```'
             echo
             echo "The Windows builds are not code-signed, so Windows SmartScreen may warn on first launch (**More info → Run anyway**)."
+            echo
+            echo "Updates of the installed desktop app are signed with the project's update key; the app refuses anything else."
             echo
             echo "The APK is signed with the project's own key (certificate SHA-256 \`${ANDROID_CERT_SHA256}\`). Android asks you to allow installing apps from the browser or file manager you open it with."
           } > "$RUNNER_TEMP/notes.md"
