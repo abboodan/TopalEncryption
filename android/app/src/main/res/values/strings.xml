@@ -148,7 +148,7 @@
     <string name="about_license">License</string>
     <string name="about_license_name" translatable="false">MIT</string>
     <string name="about_report">Report a vulnerability</string>
-    <string name="about_network">The app uses the internet for one thing only: looking for a new version on GitHub and downloading it, when you ask. An update is installed only if it is signed with the same key as this app, and Android asks you before installing.</string>
+    <string name="about_network">The app uses the internet for one thing only: looking for a new version on GitHub and downloading it, and only when you press “Check for updates” or when the daily check is switched on (it is off by default). An update is installed only if it is signed with the same key as this app, and Android asks you before installing.</string>
 
     <string name="check_updates">Check for updates</string>
     <string name="update_checking">Checking…</string>
