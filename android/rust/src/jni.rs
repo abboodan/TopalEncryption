@@ -11,6 +11,7 @@
 use std::fs::File;
 use std::io;
 use std::os::fd::FromRawFd;
+use std::path::Path;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::Ordering;
 
@@ -94,10 +95,12 @@ pub extern "system" fn Java_io_github_abboodan_topalencryption_core_Native_newEn
     mut env: JNIEnv<'local>,
     _this: JObject<'local>,
     password: JString<'local>,
+    recovery_public: JString<'local>,
 ) -> jlong {
     guard(&mut env, |env| {
         let password = text(env, &password)?;
-        Ok(boxed(crate::encryptor(&password)?))
+        let public = optional_text(env, &recovery_public)?;
+        Ok(boxed(crate::encryptor(&password, public.as_ref().map(|key| key.as_str()))?))
     })
 }
 
@@ -338,4 +341,48 @@ pub extern "system" fn Java_io_github_abboodan_topalencryption_core_Native_isSaf
 ) -> jboolean {
     let safe = guard(&mut env, |env| Ok(archive::is_safe_name(&text(env, &name)?)));
     jboolean::from(safe)
+}
+
+/// Changes the password of the document behind `file`, which must be open for reading
+/// and writing. `saved_dir` is a folder of the app's own, for the header being replaced.
+#[no_mangle]
+pub extern "system" fn Java_io_github_abboodan_topalencryption_core_Native_changePassword<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    encryptor: jlong,
+    decryptor: jlong,
+    control: jlong,
+    file: jint,
+    size: jlong,
+    saved_dir: JString<'local>,
+    key: JString<'local>,
+) {
+    let file = owned(file);
+    guard(&mut env, |env| {
+        let mut file = file?;
+        let saved_dir = text(env, &saved_dir)?;
+        let key = text(env, &key)?;
+        // SAFETY: the three handles are alive for the whole call.
+        let (encryptor, decryptor, control) = unsafe {
+            (borrow::<Encryptor>(encryptor), borrow::<Decryptor>(decryptor), borrow::<Control>(control))
+        };
+        let meter = Meter::new(control, size.max(0) as u64);
+        crate::change_password(encryptor, decryptor, &mut file, Path::new(saved_dir.as_str()), &key, &meter)
+    })
+}
+
+/// Checks a public recovery key and returns its ID and its canonical text, on two lines.
+#[no_mangle]
+pub extern "system" fn Java_io_github_abboodan_topalencryption_core_Native_importRecoveryPublic<'local>(
+    mut env: JNIEnv<'local>,
+    _this: JObject<'local>,
+    value: JString<'local>,
+) -> jstring {
+    let imported = guard(&mut env, |env| {
+        let imported = crate::import_public(&text(env, &value)?)?;
+        let lines = format!("{}
+{}", imported.id, imported.text);
+        Ok(Some(env.new_string(lines).map_err(jni_failed)?.into_raw()))
+    });
+    imported.unwrap_or(std::ptr::null_mut())
 }
