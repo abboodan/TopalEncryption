@@ -324,6 +324,44 @@ fn unpack_into(mut reader: impl Read, root: &Path, sync: bool) -> Result<()> {
     Ok(())
 }
 
+/// Where [`unpack_to`] puts what it reads, for callers that cannot write to plain paths
+/// (Android hands an app documents, not paths).
+///
+/// Every `rel` passed in has already been checked exactly as [`unpack`] checks it: `/`
+/// separated, each part accepted by [`is_safe_name`], at most [`MAX_DEPTH`] parts.
+pub trait Sink {
+    type File: Write;
+
+    /// Creates the folder at `rel`, and any missing parents.
+    fn dir(&mut self, rel: &str) -> io::Result<()>;
+
+    /// Creates a new file at `rel`, and any missing parents. Must never replace an
+    /// existing file: older archives can hold the same path twice.
+    fn file(&mut self, rel: &str) -> io::Result<Self::File>;
+
+    /// Called once the whole content of `file` has been written to it.
+    fn finish(&mut self, mut file: Self::File) -> io::Result<()> {
+        file.flush()
+    }
+}
+
+/// Like [`unpack`], but hands every folder and file to `sink` instead of creating them
+/// under a path. On error, what the sink created so far is left for the caller to remove.
+pub fn unpack_to(mut reader: impl Read, sink: &mut impl Sink) -> Result<()> {
+    let mut buf = vec![0u8; COPY_BUFFER];
+    while let Some((is_dir, rel)) = next_entry(&mut reader)? {
+        safe_join(Path::new(""), &rel)?;
+        if is_dir {
+            sink.dir(&rel)?;
+            continue;
+        }
+        let mut file = sink.file(&rel)?;
+        file_content(&mut reader, &mut buf, |bytes| file.write_all(bytes))?;
+        sink.finish(file)?;
+    }
+    Ok(())
+}
+
 /// Reads a whole archive exactly as [`unpack`] would, writing nothing: succeeds only if
 /// the archive is complete and every path in it would be accepted.
 pub fn check(mut reader: impl Read) -> Result<()> {
@@ -468,6 +506,93 @@ mod tests {
             let bad = [entry(KIND_FILE, rel, b"x"), vec![KIND_END]].concat();
             assert!(matches!(check(&bad[..]), Err(Error::UnsafePath)), "{rel}");
         }
+    }
+
+    /// A sink that only remembers what it was asked to create.
+    #[derive(Default)]
+    struct Recorded {
+        dirs: Vec<String>,
+        files: Vec<(String, Vec<u8>)>,
+    }
+
+    struct Buffer(String, Vec<u8>);
+
+    impl Sink for Recorded {
+        type File = Buffer;
+
+        fn dir(&mut self, rel: &str) -> io::Result<()> {
+            self.dirs.push(rel.to_owned());
+            Ok(())
+        }
+
+        fn file(&mut self, rel: &str) -> io::Result<Self::File> {
+            Ok(Buffer(rel.to_owned(), Vec::new()))
+        }
+
+        fn finish(&mut self, file: Self::File) -> io::Result<()> {
+            self.files.push((file.0, file.1));
+            Ok(())
+        }
+    }
+
+    impl Write for Buffer {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.1.write(buf)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn unpacking_to_a_sink_hands_over_the_same_tree() {
+        let big = vec![7u8; COPY_BUFFER + 11];
+        let archive = [
+            entry(KIND_DIR, "فارغ", b""),
+            entry(KIND_FILE, "d/one.txt", b"one"),
+            entry(KIND_FILE, "d/zero", b""),
+            entry(KIND_FILE, "big.bin", &big),
+            vec![KIND_END],
+        ]
+        .concat();
+        let mut sink = Recorded::default();
+        unpack_to(&archive[..], &mut sink).unwrap();
+        assert_eq!(sink.dirs, ["فارغ"]);
+        assert_eq!(
+            sink.files,
+            [
+                ("d/one.txt".to_owned(), b"one".to_vec()),
+                ("d/zero".to_owned(), Vec::new()),
+                ("big.bin".to_owned(), big),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_sink_is_never_given_an_unsafe_or_incomplete_entry() {
+        for rel in ["../evil", "a/../../evil", "/evil", "a\\b", "nul", "x/trailing.", "ok/"] {
+            for kind in [KIND_FILE, KIND_DIR] {
+                let archive = [entry(kind, rel, b"x"), vec![KIND_END]].concat();
+                let mut sink = Recorded::default();
+                assert!(matches!(unpack_to(&archive[..], &mut sink), Err(Error::UnsafePath)), "{rel}");
+                assert!(sink.dirs.is_empty() && sink.files.is_empty(), "{rel} reached the sink");
+            }
+        }
+        let deep = [entry(KIND_DIR, &vec!["a"; MAX_DEPTH + 1].join("/"), b""), vec![KIND_END]].concat();
+        assert!(matches!(unpack_to(&deep[..], &mut Recorded::default()), Err(Error::UnsafePath)));
+
+        // A file that is cut off is created but never reported as finished. One that is
+        // whole can be, even though the archive then turns out to be cut: the error is
+        // what tells the caller to throw everything away.
+        let good = [entry(KIND_FILE, "f", b"data"), vec![KIND_END]].concat();
+        for cut in [0, 1, 3, 8, good.len() - 1] {
+            let mut sink = Recorded::default();
+            assert!(matches!(unpack_to(&good[..cut], &mut sink), Err(Error::Corrupted)), "cut {cut}");
+            assert_eq!(sink.files.len(), usize::from(cut == good.len() - 1), "cut {cut}");
+        }
+        let trailing = [good, vec![1]].concat();
+        assert!(matches!(unpack_to(&trailing[..], &mut Recorded::default()), Err(Error::Corrupted)));
     }
 
     #[test]
