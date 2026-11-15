@@ -14,12 +14,17 @@ use topal_core::recovery::{self, RecoveryKey};
 use topal_core::{passphrase, Error, KdfParams};
 use zeroize::Zeroizing;
 
+mod update;
+
 const PROGRESS_EVENT: &str = "progress";
 /// Sent when Explorer's right-click menu starts a second copy of the app with paths.
 const OPEN_EVENT: &str = "open-paths";
 const PROGRESS_INTERVAL: Duration = Duration::from_millis(80);
 const MAX_FAILURES_REPORTED: usize = 200;
 const MAX_PROGRAMS_REPORTED: usize = 10;
+const MAX_OUTPUTS_REPORTED: usize = 200;
+/// "Show in folder" selects at most this many entries in Explorer.
+const MAX_OUTPUTS_SELECTED: usize = 100;
 const RECOVERY_KEY_FILE: &str = "Topal Encryption recovery key.txt";
 
 /// The size of the window content the interface is designed for, in logical pixels.
@@ -31,6 +36,38 @@ const SCREEN_MARGIN: f64 = 16.0;
 #[derive(Default)]
 struct AppState {
     current: Mutex<Option<Arc<Progress>>>,
+    /// What the last job wrote, for "Show in folder". The interface never passes paths
+    /// to open: it can only ask for these to be shown.
+    outputs: Mutex<Vec<PathBuf>>,
+    update: update::UpdateState,
+}
+
+impl AppState {
+    fn job_running(&self) -> bool {
+        self.current.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).is_some()
+    }
+}
+
+/// The pages the app can open in the browser. The interface picks one by name; the
+/// addresses are fixed here.
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum Link {
+    Developer,
+    Source,
+    Vulnerability,
+    Releases,
+}
+
+impl Link {
+    fn url(self) -> &'static str {
+        match self {
+            Link::Developer => "https://github.com/abboodan",
+            Link::Source => "https://github.com/abboodan/TopalEncryption",
+            Link::Vulnerability => "https://github.com/abboodan/TopalEncryption/security/advisories/new",
+            Link::Releases => "https://github.com/abboodan/TopalEncryption/releases/latest",
+        }
+    }
 }
 
 #[derive(Deserialize, Serialize, Clone, Copy, PartialEq)]
@@ -99,6 +136,10 @@ struct SummaryInfo {
     /// Names of outputs written as programs although the encrypted file's name did not
     /// show it, for the interface to point out. At most `MAX_PROGRAMS_REPORTED`.
     programs: Vec<String>,
+    /// Names of the files and folders written. At most `MAX_OUTPUTS_REPORTED`;
+    /// `outputs_total` is the true count.
+    outputs: Vec<String>,
+    outputs_total: usize,
 }
 
 #[derive(Deserialize)]
@@ -347,6 +388,12 @@ async fn start(
         }
         *current = Some(progress.clone());
     }
+    // An update being downloaded or installed is about to close the app.
+    if state.update.is_busy() {
+        *state.current.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
+        return Err("updating".into());
+    }
+    state.outputs.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clear();
 
     let outcome = tauri::async_runtime::spawn_blocking(move || {
         let unlock = || match &recovery_key {
@@ -391,7 +438,7 @@ async fn start(
         .map_err(|err| err.to_string())?;
         let _ = app.emit(PROGRESS_EVENT, snapshot(&progress));
 
-        Ok(SummaryInfo {
+        let info = SummaryInfo {
             done: summary.done,
             skipped: summary.skipped,
             failed: summary.failures.len(),
@@ -418,13 +465,87 @@ async fn start(
                 })
                 .collect(),
             warnings: scan.warnings,
-        })
+            outputs: summary
+                .outputs
+                .iter()
+                .take(MAX_OUTPUTS_REPORTED)
+                .filter_map(|path| path.file_name())
+                .map(|name| name.to_string_lossy().into_owned())
+                .collect(),
+            outputs_total: summary.outputs.len(),
+        };
+        Ok::<_, String>((info, summary.outputs))
     })
     .await
     .map_err(|err| err.to_string());
 
     *state.current.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = None;
-    outcome?
+    let (info, outputs) = outcome??;
+    *state.outputs.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = outputs;
+    Ok(info)
+}
+
+/// What Explorer is asked to select so that every output is in view: the outputs
+/// themselves when they share a folder, and otherwise the entries, in the nearest
+/// folder that holds them all, that lead to them. Outputs with no folder in common
+/// (different drives) leave only the first one.
+fn reveal_selection(outputs: &[PathBuf]) -> Vec<PathBuf> {
+    let Some(first) = outputs.first() else { return Vec::new() };
+    let mut common = parent_of(first).to_owned();
+    for output in &outputs[1..] {
+        let parent = parent_of(output);
+        while !parent.starts_with(&common) {
+            if !common.pop() {
+                return vec![first.clone()];
+            }
+        }
+    }
+    if common.as_os_str().is_empty() {
+        return vec![first.clone()];
+    }
+    let mut selection: Vec<PathBuf> = Vec::new();
+    for output in outputs {
+        let Some(top) = output.strip_prefix(&common).ok().and_then(|rest| rest.components().next())
+        else {
+            continue;
+        };
+        let entry = common.join(top);
+        if !selection.contains(&entry) {
+            selection.push(entry);
+            if selection.len() == MAX_OUTPUTS_SELECTED {
+                break;
+            }
+        }
+    }
+    selection
+}
+
+fn parent_of(path: &Path) -> &Path {
+    path.parent().unwrap_or(Path::new(""))
+}
+
+/// Opens Explorer on what the last job wrote. The paths go to the Windows shell as
+/// item lists: no command line is built from file names.
+#[tauri::command]
+async fn show_outputs(state: State<'_, AppState>) -> Result<(), String> {
+    let outputs = state.outputs.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // Whatever was moved or deleted since the job ended is left out.
+        let selection: Vec<PathBuf> =
+            reveal_selection(&outputs).into_iter().filter(|path| path.exists()).collect();
+        if selection.is_empty() {
+            return Err("outputs_gone".to_string());
+        }
+        tauri_plugin_opener::reveal_items_in_dir(&selection).map_err(|_| "outputs_gone".to_string())
+    })
+    .await
+    .map_err(|err| err.to_string())?
+}
+
+/// Opens one of the app's own pages in the default browser.
+#[tauri::command]
+fn open_link(link: Link) -> Result<(), String> {
+    tauri_plugin_opener::open_url(link.url(), None::<&str>).map_err(|err| err.to_string())
 }
 
 #[tauri::command]
@@ -450,6 +571,9 @@ fn main() {
             }
         }))
         .plugin(tauri_plugin_dialog::init())
+        // Only the app's own commands in `update` use it: the window is not given the
+        // plugin's permissions.
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(AppState::default())
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main") {
@@ -469,7 +593,14 @@ fn main() {
             recovery_disable,
             save_recovery_key,
             start,
-            cancel
+            cancel,
+            show_outputs,
+            open_link,
+            update::app_info,
+            update::set_daily_check,
+            update::update_check,
+            update::update_download,
+            update::update_install
         ])
         .run(tauri::generate_context!())
         .expect("failed to start Topal Encryption");
@@ -499,6 +630,60 @@ mod tests {
         assert!(left >= 0 && top >= 0, "{work_area:?} @ {scale}");
         assert!((left - right).abs() <= 1 && (top - bottom).abs() <= 1, "{work_area:?} @ {scale}");
         (width, height)
+    }
+
+    #[test]
+    fn one_output_is_selected_and_several_in_one_folder_are_all_selected() {
+        let paths = |list: &[&str]| list.iter().map(PathBuf::from).collect::<Vec<_>>();
+        assert!(reveal_selection(&[]).is_empty());
+        assert_eq!(reveal_selection(&paths(&[r"C:\in\a.txt.topal"])), paths(&[r"C:\in\a.txt.topal"]));
+        assert_eq!(
+            reveal_selection(&paths(&[r"C:\in\a.topal", r"C:\in\b.topal"])),
+            paths(&[r"C:\in\a.topal", r"C:\in\b.topal"])
+        );
+    }
+
+    #[test]
+    fn outputs_in_several_folders_show_the_folder_that_holds_them_all() {
+        let paths = |list: &[&str]| list.iter().map(PathBuf::from).collect::<Vec<_>>();
+        // A folder's structure kept under an output folder: its top entries are selected.
+        assert_eq!(
+            reveal_selection(&paths(&[
+                r"D:\out\docs\a.txt",
+                r"D:\out\docs\nested\b.txt",
+                r"D:\out\docs\nested\deep\c.txt",
+                r"D:\out\single.txt",
+            ])),
+            paths(&[r"D:\out\docs", r"D:\out\single.txt"])
+        );
+        // Encrypted beside sources that sit in two branches of one tree.
+        assert_eq!(
+            reveal_selection(&paths(&[r"C:\data\x\a.topal", r"C:\data\y\z\b.topal"])),
+            paths(&[r"C:\data\x", r"C:\data\y"])
+        );
+        // An output directly in the common folder, and one below it.
+        assert_eq!(
+            reveal_selection(&paths(&[r"C:\data\x\deep\a.topal", r"C:\data\x\b.topal"])),
+            paths(&[r"C:\data\x\deep", r"C:\data\x\b.topal"])
+        );
+        // Nothing in common: only the first output.
+        assert_eq!(
+            reveal_selection(&paths(&[r"C:\a\one.topal", r"D:\b\two.topal"])),
+            paths(&[r"C:\a\one.topal"])
+        );
+    }
+
+    #[test]
+    fn a_long_list_of_outputs_selects_a_bounded_number() {
+        let outputs: Vec<PathBuf> = (0..5000).map(|n| PathBuf::from(format!(r"C:\in\{n}.topal"))).collect();
+        assert_eq!(reveal_selection(&outputs).len(), MAX_OUTPUTS_SELECTED);
+    }
+
+    #[test]
+    fn links_are_fixed_https_pages_of_the_project() {
+        for link in [Link::Developer, Link::Source, Link::Vulnerability, Link::Releases] {
+            assert!(link.url().starts_with("https://github.com/abboodan"), "{}", link.url());
+        }
     }
 
     #[test]
