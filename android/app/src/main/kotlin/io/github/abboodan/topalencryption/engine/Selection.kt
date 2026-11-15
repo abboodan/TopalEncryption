@@ -8,7 +8,7 @@ import android.provider.DocumentsContract.Document
 import android.provider.OpenableColumns
 import java.io.File
 
-enum class Mode { ENCRYPT, DECRYPT, VERIFY }
+enum class Mode { ENCRYPT, DECRYPT, VERIFY, CHANGE }
 
 const val EXTENSION = "topal"
 

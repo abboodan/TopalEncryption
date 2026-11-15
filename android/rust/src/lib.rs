@@ -8,12 +8,14 @@
 //! The functions in this file are plain Rust and are tested on any host. The `jni` module
 //! is the thin layer that exposes them to Kotlin.
 
-use std::io::{self, Read, Write};
+use std::fs::{self, File};
+use std::io::{self, Read, Seek, SeekFrom, Write};
+use std::path::Path;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use topal_core::archive::{self, Sink};
-use topal_core::recovery::RecoveryKey;
-use topal_core::{passphrase, Decryptor, Encryptor, Error, KdfParams, Kind, Result};
+use topal_core::recovery::{RecoveryKey, RecoveryPublic};
+use topal_core::{passphrase, Decryptor, Encryptor, Error, KdfParams, Kind, Result, MAX_HEADER_LEN};
 use zeroize::Zeroizing;
 
 #[cfg(target_os = "android")]
@@ -125,8 +127,42 @@ impl<R: Read> Read for StopOnCancel<'_, R> {
 
 /// Derives the key for a batch of files to encrypt. This is the slow step (256 MiB of
 /// memory, about a second): do it once and reuse the result for every file.
-pub fn encryptor(password: &str) -> Result<Encryptor> {
-    Encryptor::new(password, KdfParams::default())
+///
+/// With `recovery_public`, the public half of a recovery key in its text form, every file
+/// also gets a recovery slot, exactly as on the desktop.
+pub fn encryptor(password: &str, recovery_public: Option<&str>) -> Result<Encryptor> {
+    let public = recovery_public.map(parse_public).transpose()?;
+    Ok(Encryptor::new(password, KdfParams::default())?.with_recovery(public))
+}
+
+/// Finds the public key in `text`: the key alone, or a file that has it on a line of its
+/// own (`recovery-public.txt` from the PC ends with a line break).
+fn parse_public(text: &str) -> Result<RecoveryPublic> {
+    RecoveryPublic::parse(text)
+        .or_else(|err| text.lines().find_map(|line| RecoveryPublic::parse(line).ok()).ok_or(err))
+}
+
+/// The public half of a recovery key, checked and ready to store.
+#[derive(Debug, PartialEq, Eq)]
+pub struct ImportedPublic {
+    /// `XXXX-XXXX-XXXX-XXXX`, the same ID the desktop app shows for this key.
+    pub id: String,
+    /// The key in its canonical text form, `TOPAL-PUB-...`.
+    pub text: String,
+}
+
+/// Checks a public recovery key brought over from the PC, pasted or read from
+/// `recovery-public.txt`. Anything else is `invalid_recovery_key`: a mistyped key, the
+/// secret half, or a key that could not protect anything.
+pub fn import_public(text: &str) -> Result<ImportedPublic> {
+    let public = parse_public(text)?;
+    // The core refuses a degenerate key only when it seals a file to it. Find out now, so
+    // that a key the app accepted never makes every later encryption fail.
+    let probe = KdfParams { memory_kib: 8, passes: 1, lanes: 1 };
+    Encryptor::new("", probe)?
+        .with_recovery(Some(public))
+        .encrypt(Kind::File, "", io::empty(), io::sink())?;
+    Ok(ImportedPublic { id: public.id(), text: public.to_string() })
 }
 
 /// What opens a batch of encrypted files: the password or, when `recovery_key` is given,
@@ -216,6 +252,139 @@ pub fn verify(decryptor: &Decryptor, input: impl Read, meter: &Meter) -> Result<
         Kind::Folder => {
             archive::check(StopOnCancel { inner: &mut opened.content, control: meter.control })?
         }
+    }
+    Ok(())
+}
+
+/// Reads until `buf` is full or the input ends; returns the number of bytes read.
+fn read_full(reader: &mut impl Read, buf: &mut [u8]) -> io::Result<usize> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match reader.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
+            Err(err) => return Err(err),
+        }
+    }
+    Ok(filled)
+}
+
+/// How many saved headers are tried when a file's own header does not open.
+const MAX_SAVED_HEADERS: usize = 16;
+
+/// A document whose password can be changed: read, written and positioned like a file,
+/// and flushed to storage on request.
+pub trait Document: Read + Write + Seek {
+    fn sync(&mut self) -> io::Result<()>;
+}
+
+impl Document for File {
+    fn sync(&mut self) -> io::Result<()> {
+        self.sync_all()
+    }
+}
+
+/// The new header for `file` made from a saved one, but only if the saved header really
+/// belongs to this file: its key must decrypt the file's first chunk. A header from any
+/// other file would otherwise replace the only copy of the key.
+fn header_from_saved(
+    new: &Encryptor,
+    old: &Decryptor,
+    saved: &[u8],
+    file: &mut impl Document,
+) -> Result<Vec<u8>> {
+    let header = new.rewrap(old, saved)?;
+    if saved.len() < header.len() {
+        return Err(Error::Corrupted);
+    }
+    file.seek(SeekFrom::Start(header.len() as u64))?;
+    let whole = io::Cursor::new(&saved[..header.len()]).chain(&mut *file);
+    old.open(whole)?.content.next_chunk()?;
+    Ok(header)
+}
+
+/// Gives the encrypted `file` the password of `new`, opening it with `old` (the current
+/// password, or the recovery key). Only the header is rewritten, in place, as on the
+/// desktop: the content is not touched and a recovery slot keeps working.
+///
+/// The old header is first saved in `saved_dir` under the name `key` and synced, and
+/// removed once the new one is in the file and has been read back. If the write is ever
+/// cut short, the next password change finds the saved header and repairs the file from
+/// it. A document sits behind a `content://` address, so unlike on the desktop the copy
+/// cannot be put beside the file: `saved_dir` is a folder of the app's own, and `key` a
+/// name derived from the address. The saved bytes hold nothing the file itself does not
+/// show.
+///
+/// Nothing is written unless the file opened with `old`.
+pub fn change_password(
+    new: &Encryptor,
+    old: &Decryptor,
+    file: &mut impl Document,
+    saved_dir: &Path,
+    key: &str,
+    meter: &Meter,
+) -> Result<()> {
+    if meter.control.cancel.load(Ordering::Relaxed) {
+        return Err(cancelled().into());
+    }
+    file.seek(SeekFrom::Start(0))?;
+    let mut current = vec![0u8; MAX_HEADER_LEN];
+    let len = read_full(file, &mut current)?;
+    current.truncate(len);
+
+    let own = saved_dir.join(key);
+    let mut used = None;
+    let header = match new.rewrap(old, &current[..]) {
+        Ok(header) => {
+            fs::create_dir_all(saved_dir)?;
+            let mut saved = File::create(&own)?;
+            saved.write_all(&current)?;
+            saved.sync_all()?;
+            header
+        }
+        // The header does not open. If an earlier change was interrupted, the one saved
+        // then may; it is kept as it is until this change has succeeded. The address of
+        // a document can differ from one pick to the next, so every saved header is
+        // tried, this document's own first.
+        Err(err) => {
+            let mut candidates = vec![own.clone()];
+            if let Ok(entries) = fs::read_dir(saved_dir) {
+                let mut others: Vec<_> =
+                    entries.flatten().map(|entry| entry.path()).filter(|path| *path != own).collect();
+                others.sort();
+                candidates.extend(others.into_iter().take(MAX_SAVED_HEADERS - 1));
+            }
+            let mut found = None;
+            for path in candidates {
+                let Ok(saved) = fs::read(&path) else { continue };
+                if saved.len() > MAX_HEADER_LEN {
+                    continue;
+                }
+                if let Ok(header) = header_from_saved(new, old, &saved, file) {
+                    found = Some(header);
+                    used = Some(path);
+                    break;
+                }
+            }
+            found.ok_or(err)?
+        }
+    };
+
+    file.seek(SeekFrom::Start(0))?;
+    file.write_all(&header)?;
+    file.flush()?;
+    file.sync()?;
+    // Some document providers accept writes that never reach the file. The saved header
+    // is only given up once the new one is really there.
+    let mut written = vec![0u8; header.len()];
+    file.seek(SeekFrom::Start(0))?;
+    if read_full(file, &mut written)? != header.len() || written != header {
+        return Err(io::Error::other("the document did not keep what was written to it").into());
+    }
+    let _ = fs::remove_file(&own);
+    if let Some(path) = used {
+        let _ = fs::remove_file(path);
     }
     Ok(())
 }
@@ -551,5 +720,273 @@ mod tests {
         let phrase = generate_passphrase();
         assert_eq!(phrase.split('-').count(), 6);
         assert_ne!(*phrase, *generate_passphrase());
+    }
+
+    /// The all-zero public key, with a valid checksum: every secret shared with it is zero.
+    const WEAK_PUBLIC: &str =
+        "TOPAL-PUB-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-AAAAA-ALOGA";
+
+    #[test]
+    fn a_public_key_is_imported_with_the_id_the_desktop_shows() {
+        let key = RecoveryKey::generate();
+        let public = key.public();
+        let stored = format!("{public}\n");
+
+        let imported = import_public(&stored).unwrap();
+        assert_eq!(imported, ImportedPublic { id: public.id(), text: public.to_string() });
+        assert_eq!(import_public(&imported.text).unwrap(), imported);
+        // Pasted with a note around it, in lower case.
+        let noted = format!("Recovery key (public half)\r\n{}\r\n", public.to_string().to_lowercase());
+        assert_eq!(import_public(&noted).unwrap(), imported);
+
+        // The weak key is well formed; it is the trial run that refuses it.
+        assert!(parse_public(WEAK_PUBLIC).is_ok());
+        let secret = key.to_text();
+        for bad in ["", "hello", secret.as_str(), &stored[..stored.len() - 4], WEAK_PUBLIC] {
+            assert_eq!(code(&import_public(bad).unwrap_err()), "invalid_recovery_key", "{bad:?}");
+        }
+    }
+
+    #[test]
+    fn files_encrypted_with_an_imported_key_open_with_the_recovery_key() {
+        let key = RecoveryKey::generate();
+        let imported = import_public(&format!("{}\n", key.public())).unwrap();
+        // The real costs would take a second: the slot does not depend on them.
+        let public = parse_public(&imported.text).unwrap();
+        let control = Control::default();
+        let mut sealed = Vec::new();
+        let encryptor = Encryptor::new("pw", FAST).unwrap().with_recovery(Some(public));
+        encrypt(&encryptor, "a.txt", &b"secret"[..], &mut sealed, &Meter::new(&control, 6)).unwrap();
+
+        let mut output = Recorded::default();
+        let by_key = decryptor("", Some(&key.to_text())).unwrap();
+        assert!(decrypt(&by_key, &sealed[..], &mut output, &Meter::new(&control, 0)).unwrap());
+        assert_eq!(output.files[0].1, b"secret");
+        let (result, _, _) = open("pw", &sealed);
+        assert!(result.unwrap(), "the password still opens it");
+
+        let err = encryptor_for("pw", Some("not a key")).err().unwrap();
+        assert_eq!(code(&err), "invalid_recovery_key");
+    }
+
+    /// `encryptor`, under a name the local variables above do not hide.
+    fn encryptor_for(password: &str, public: Option<&str>) -> Result<Encryptor> {
+        encryptor(password, public)
+    }
+
+    /// A document in memory. `fail_after` cuts the next write short, like storage going away.
+    struct Memory {
+        inner: Cursor<Vec<u8>>,
+        fail_after: Option<usize>,
+        synced: usize,
+    }
+
+    impl Memory {
+        fn new(data: &[u8]) -> Self {
+            Self { inner: Cursor::new(data.to_vec()), fail_after: None, synced: 0 }
+        }
+    }
+
+    impl Read for Memory {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.inner.read(buf)
+        }
+    }
+
+    impl Write for Memory {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            match self.fail_after.take() {
+                Some(keep) => {
+                    self.inner.write_all(&buf[..keep.min(buf.len())])?;
+                    Err(io::Error::other("the storage went away"))
+                }
+                None => self.inner.write(buf),
+            }
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Seek for Memory {
+        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            self.inner.seek(pos)
+        }
+    }
+
+    impl Document for Memory {
+        fn sync(&mut self) -> io::Result<()> {
+            self.synced += 1;
+            Ok(())
+        }
+    }
+
+    fn change(new: &str, old: &Decryptor, file: &mut Memory, saved: &Path, key: &str) -> Result<()> {
+        let control = Control::default();
+        let encryptor = Encryptor::new(new, FAST).unwrap();
+        let result = change_password(&encryptor, old, file, saved, key, &Meter::new(&control, 0));
+        result
+    }
+
+    fn saved_headers(dir: &Path) -> usize {
+        fs::read_dir(dir).map(|entries| entries.count()).unwrap_or(0)
+    }
+
+    #[test]
+    fn changing_the_password_rewrites_only_the_header() {
+        let saved = tempfile::tempdir().unwrap();
+        let key = RecoveryKey::generate();
+        let data = sample(CHUNK + 9);
+        let mut sealed = Vec::new();
+        Encryptor::new("old", FAST)
+            .unwrap()
+            .with_recovery(Some(key.public()))
+            .encrypt(Kind::File, "a.bin", &data[..], &mut sealed)
+            .unwrap();
+
+        let mut file = Memory::new(&sealed);
+        change("new", &Decryptor::new("old"), &mut file, saved.path(), "a").unwrap();
+        assert_eq!(file.synced, 1);
+        let changed = file.inner.into_inner();
+        assert_eq!(changed.len(), sealed.len());
+        assert_eq!(changed[MAX_HEADER_LEN..], sealed[MAX_HEADER_LEN..], "the content is not touched");
+        assert_ne!(changed[..MAX_HEADER_LEN], sealed[..MAX_HEADER_LEN]);
+        assert_eq!(saved_headers(saved.path()), 0, "the saved header is removed afterwards");
+
+        let (result, output, _) = open("new", &changed);
+        assert!(result.unwrap());
+        assert_eq!(output.files[0].1, data);
+        assert_eq!(code(&open("old", &changed).0.unwrap_err()), "wrong_password");
+        let control = Control::default();
+        let by_key = decryptor("", Some(&key.to_text())).unwrap();
+        verify(&by_key, &changed[..], &Meter::new(&control, 0)).unwrap();
+
+        // A forgotten password is replaced using the recovery key.
+        let mut file = Memory::new(&changed);
+        change("third", &by_key, &mut file, saved.path(), "a").unwrap();
+        assert!(open("third", file.inner.get_ref()).0.unwrap());
+    }
+
+    #[test]
+    fn a_file_that_does_not_open_is_left_exactly_as_it_was() {
+        let saved = tempfile::tempdir().unwrap();
+        let sealed = seal("old", "a.txt", &sample(300));
+
+        let mut file = Memory::new(&sealed);
+        let err = change("new", &Decryptor::new("wrong"), &mut file, saved.path(), "a").unwrap_err();
+        assert_eq!(code(&err), "wrong_password");
+        assert_eq!((file.inner.get_ref(), file.synced), (&sealed, 0));
+
+        let other_key = decryptor("", Some(&RecoveryKey::generate().to_text())).unwrap();
+        let mut file = Memory::new(&sealed);
+        let err = change("new", &other_key, &mut file, saved.path(), "a").unwrap_err();
+        assert_eq!(code(&err), "no_recovery_slot");
+        assert_eq!(file.inner.get_ref(), &sealed);
+
+        let text = b"just some text, not an encrypted file";
+        let mut file = Memory::new(text);
+        let err = change("new", &Decryptor::new("old"), &mut file, saved.path(), "a").unwrap_err();
+        assert_eq!(code(&err), "not_topal");
+        assert_eq!(file.inner.get_ref(), text);
+        assert_eq!(saved_headers(saved.path()), 0);
+
+        let control = Control::default();
+        control.cancel.store(true, Ordering::Relaxed);
+        let mut file = Memory::new(&sealed);
+        let encryptor = Encryptor::new("new", FAST).unwrap();
+        let err = {
+            let meter = Meter::new(&control, sealed.len() as u64);
+            change_password(&encryptor, &Decryptor::new("old"), &mut file, saved.path(), "a", &meter)
+                .unwrap_err()
+        };
+        assert_eq!(code(&err), "cancelled");
+        assert_eq!(file.inner.get_ref(), &sealed);
+        assert_eq!(control.bytes.load(Ordering::Relaxed), sealed.len() as u64);
+    }
+
+    #[test]
+    fn a_header_cut_short_is_repaired_from_the_saved_one() {
+        let saved = tempfile::tempdir().unwrap();
+        let data = sample(2 * CHUNK);
+        let sealed = seal("old", "a.bin", &data);
+
+        // The write stops after 40 bytes: the header is now half old, half new.
+        let mut file = Memory::new(&sealed);
+        file.fail_after = Some(40);
+        let err = change("new", &Decryptor::new("old"), &mut file, saved.path(), "a").unwrap_err();
+        assert_eq!(code(&err), "io");
+        let torn = file.inner.into_inner();
+        assert_ne!(torn, sealed);
+        assert!(open("old", &torn).0.is_err() && open("new", &torn).0.is_err());
+        assert_eq!(saved_headers(saved.path()), 1, "the old header is still saved");
+
+        // A different file is not repaired with it, and stays as it is.
+        let mut damaged = seal("old", "b.bin", b"another file");
+        damaged[20] ^= 1;
+        let mut wrong = Memory::new(&damaged);
+        assert!(change("new", &Decryptor::new("old"), &mut wrong, saved.path(), "b").is_err());
+        assert_eq!(wrong.inner.get_ref(), &damaged);
+        assert_eq!(saved_headers(saved.path()), 1);
+
+        // The wrong password does not repair it either.
+        let mut file = Memory::new(&torn);
+        assert!(change("new", &Decryptor::new("bad"), &mut file, saved.path(), "a").is_err());
+        assert_eq!(file.inner.get_ref(), &torn);
+
+        // Trying again repairs it, even when the document comes back under another address.
+        let mut file = Memory::new(&torn);
+        change("new", &Decryptor::new("old"), &mut file, saved.path(), "picked-again").unwrap();
+        let (result, output, _) = open("new", file.inner.get_ref());
+        assert!(result.unwrap());
+        assert_eq!(output.files[0].1, data);
+        assert_eq!(saved_headers(saved.path()), 0);
+    }
+
+    /// Accepts every write and forgets it, as a read-only copy behind a provider might.
+    struct Forgetful(Memory);
+
+    impl Read for Forgetful {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.0.read(buf)
+        }
+    }
+
+    impl Write for Forgetful {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            self.0.inner.seek(SeekFrom::Current(buf.len() as i64))?;
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    impl Seek for Forgetful {
+        fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+            self.0.seek(pos)
+        }
+    }
+
+    impl Document for Forgetful {
+        fn sync(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn a_document_that_drops_writes_keeps_its_saved_header() {
+        let saved = tempfile::tempdir().unwrap();
+        let sealed = seal("old", "a.txt", b"content");
+        let mut file = Forgetful(Memory::new(&sealed));
+        let control = Control::default();
+        let encryptor = Encryptor::new("new", FAST).unwrap();
+        let meter = Meter::new(&control, 0);
+        let err = change_password(&encryptor, &Decryptor::new("old"), &mut file, saved.path(), "a", &meter)
+            .unwrap_err();
+        assert_eq!(code(&err), "io");
+        assert_eq!(file.0.inner.get_ref(), &sealed);
+        assert_eq!(saved_headers(saved.path()), 1);
     }
 }

@@ -28,14 +28,19 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        // Passwords and recovery keys are on this screen: keep it out of screenshots, screen
-        // recordings and the previews of the recent apps list.
-        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        secure(!model.allowScreenshots)
         // Only a fresh start carries new files: a recreated activity sees the old Intent again.
         if (savedInstanceState == null) receive(intent)
         setContent {
             TopalTheme {
-                App(model, onLanguage = ::switchLanguage)
+                App(
+                    model,
+                    onLanguage = ::switchLanguage,
+                    onScreenshots = { allowed ->
+                        model.allowScreenshots(allowed)
+                        secure(!allowed)
+                    },
+                )
             }
         }
     }
@@ -50,6 +55,20 @@ class MainActivity : ComponentActivity() {
         super.onStart()
         Jobs.visible = true
         getSystemService(NotificationManager::class.java).cancel(JobService.NOTIFICATION_FINISHED)
+        model.dailyCheck()
+    }
+
+    /**
+     * Passwords and recovery keys are on this screen: unless the user allows screenshots in
+     * the settings, it is kept out of them, out of screen recordings and out of the previews
+     * of the recent apps list.
+     */
+    private fun secure(on: Boolean) {
+        if (on) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
     }
 
     override fun onStop() {
