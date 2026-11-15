@@ -73,6 +73,7 @@
     <string name="result_failed">failed</string>
     <string name="result_again">Done</string>
     <string name="note_skipped">Skipped files already had an output with the same name.</string>
+    <string name="note_installers">Written as app installers, under names the encrypted files did not show: %s. Install them only if you trust where the encrypted files came from.</string>
     <string name="note_cancelled">Files that were not finished were left untouched.</string>
     <string name="note_wrong">None of the files could be opened. Nothing was changed.</string>
     <string name="note_first">Showing the first %s failures.</string>

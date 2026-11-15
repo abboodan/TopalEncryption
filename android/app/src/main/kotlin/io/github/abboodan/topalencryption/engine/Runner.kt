@@ -45,6 +45,12 @@ data class Summary(
     val bytes: Long,
     val millis: Long,
     val savedTo: String?,
+    /**
+     * Files decrypted to an app installer (`.apk`...) under a name the encrypted file did
+     * not show. The real name is stored inside an encrypted file, so `photo.jpg.topal` from
+     * someone else can produce `update.apk`; the results point these out.
+     */
+    val installers: List<String> = emptyList(),
 ) {
     /** Every file was refused for the same reason, [code]: nothing was opened at all. */
     fun allFailedWith(code: String): Boolean =
@@ -73,6 +79,9 @@ class Runner(private val context: Context, private val request: JobRequest) {
 
     /** Outputs taken by this run, so that two sources never fight over one name. */
     private val claimed = HashSet<String>()
+
+    /** See [Summary.installers]. */
+    private val installers = ArrayList<String>()
 
     fun cancel() = synchronized(lock) {
         cancelled = true
@@ -143,6 +152,7 @@ class Runner(private val context: Context, private val request: JobRequest) {
                 bytes = Native.controlBytes(handle) + extraBytes.get(),
                 millis = SystemClock.elapsedRealtime() - started,
                 savedTo = request.targetLabel,
+                installers = synchronized(installers) { installers.toList() },
             )
         } finally {
             synchronized(lock) {
@@ -220,12 +230,15 @@ class Runner(private val context: Context, private val request: JobRequest) {
         var file: PendingFile? = null
         var folder: PendingFolder? = null
         var claimedName: String? = null
+        var installer: String? = null
         val sink = object : DecryptSink {
             override fun beginFile(name: String?): Int {
-                val final = name ?: fallbackName(item)
+                val shown = fallbackName(item)
+                val final = name ?: shown
                 if (!claim(item.relDir, final)) throw TopalException("output_exists|")
                 claimedName = final
                 if (target.exists(item.relDir, final)) return -1
+                if (!final.equals(shown, ignoreCase = true) && isInstaller(final)) installer = final
                 return target.newFile(item.relDir, final).also { file = it }.detachFd()
             }
 
@@ -248,6 +261,7 @@ class Runner(private val context: Context, private val request: JobRequest) {
             if (!written) return Outcome.Skipped
             file?.commit()
             folder?.commit()
+            installer?.let { synchronized(installers) { installers += it } }
         } catch (err: Throwable) {
             file?.discard()
             folder?.discard()
@@ -257,7 +271,13 @@ class Runner(private val context: Context, private val request: JobRequest) {
         return Outcome.Done
     }
 
+    private fun isInstaller(name: String): Boolean =
+        name.substringAfterLast('.', "").lowercase() in INSTALLER_EXTENSIONS
+
     private companion object {
+        /** What Android, or a common installer app, installs when the file is opened. */
+        val INSTALLER_EXTENSIONS = setOf("apk", "apks", "apkm", "xapk")
+
         /** Files in flight at once. Storage, not the cipher, is what limits the speed. */
         val WORKERS = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
     }

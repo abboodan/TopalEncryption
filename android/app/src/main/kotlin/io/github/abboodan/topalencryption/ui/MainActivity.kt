@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
@@ -27,7 +28,10 @@ class MainActivity : ComponentActivity() {
             navigationBarStyle = SystemBarStyle.dark(android.graphics.Color.TRANSPARENT),
         )
         super.onCreate(savedInstanceState)
-        // Only a fresh start carries a new share: a recreated activity sees the old Intent again.
+        // Passwords and recovery keys are on this screen: keep it out of screenshots, screen
+        // recordings and the previews of the recent apps list.
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        // Only a fresh start carries new files: a recreated activity sees the old Intent again.
         if (savedInstanceState == null) receive(intent)
         setContent {
             TopalTheme {
@@ -58,11 +62,12 @@ class MainActivity : ComponentActivity() {
         recreate()
     }
 
-    /** Takes the files of a "Share" from another app. */
+    /** Takes the files another app shared, or the one that was tapped in a file manager. */
     private fun receive(intent: Intent?) {
         val uris: List<Uri> = when (intent?.action) {
             Intent.ACTION_SEND -> listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java))
             Intent.ACTION_SEND_MULTIPLE -> intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
+            Intent.ACTION_VIEW -> listOfNotNull(intent.data)
             else -> return
         }
         if (uris.isEmpty()) return

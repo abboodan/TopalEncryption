@@ -388,6 +388,14 @@ private fun Result(summary: Summary, onDone: () -> Unit) {
         if (wrongPassword || wrongKey) Muted(stringResource(R.string.note_wrong))
         if (summary.cancelled) Muted(stringResource(R.string.note_cancelled))
         if (summary.skipped > 0) Muted(stringResource(R.string.note_skipped))
+        if (summary.installers.isNotEmpty()) {
+            // Each name is isolated, so that one written right to left cannot reorder the sentence.
+            val names = summary.installers.take(MAX_FAILURES).joinToString(", ") { "⁨${plainName(it)}⁩" }
+            Text(
+                stringResource(R.string.note_installers, names),
+                color = Palette.Warn, fontSize = 14.sp, modifier = Modifier.testTag("note_installers"),
+            )
+        }
     }
     if (summary.failures.isNotEmpty() && !wrongPassword && !wrongKey) {
         Panel {

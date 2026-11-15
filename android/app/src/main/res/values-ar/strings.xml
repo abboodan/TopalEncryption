@@ -70,6 +70,7 @@
     <string name="result_failed">فشلت</string>
     <string name="result_again">تم</string>
     <string name="note_skipped">الملفات المتخطاة كان لها ناتج بالاسم نفسه من قبل.</string>
+    <string name="note_installers">كُتبت كملفات تنصيب تطبيقات بأسماء لم تكن ظاهرة في أسماء الملفات المشفّرة: %s. لا تنصّبها إلا إذا كنت تثق بمصدر الملفات المشفّرة.</string>
     <string name="note_cancelled">الملفات التي لم تكتمل بقيت كما هي.</string>
     <string name="note_wrong">تعذّر فتح أي ملف. لم يتغير شيء.</string>
     <string name="note_first">تُعرض أول %s حالة فشل.</string>

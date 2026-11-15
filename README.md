@@ -108,13 +108,17 @@ and the other way round. The cryptography is not rewritten for Android: the app 
 same `topal-core` Rust code as the desktop app and the CLI.
 
 - **Encrypt, Decrypt and Verify**, for files or a whole folder chosen with Android's own
-  pickers, or sent to the app with **Share** from the gallery or a file manager.
+  pickers, or sent to the app with **Share** from the gallery or a file manager. Tapping a
+  `.topal` file in a file manager opens it in the app, ready to decrypt.
 - Results are saved to `Download/Topal Encryption`, or to a folder you choose. A result only
   appears under its name once it is complete; cancelling or a damaged file leaves nothing behind.
 - Folder containers made on the PC with *Hide file names* are unpacked into a new folder,
   never over an existing one, with the same path checks as on the PC.
 - Large files run in the background with a progress notification, and can be cancelled.
 - Passphrase generator, and opening files with a recovery key created on the PC.
+- A file decrypted to an app installer (`.apk`) under a name the encrypted file did not show
+  is pointed out in the results, like programs are on the PC.
+- The app's screen is kept out of screenshots, screen recordings and the recent apps preview.
 - English and Arabic. Needs Android 13 or later.
 - **No network permission**: the app cannot connect to anything. **Your originals are never
   deleted.**
