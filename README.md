@@ -45,10 +45,14 @@ Get the latest build from the [Releases page](https://github.com/abboodan/TopalE
 | `TopalEncryption_x.y.z_x64-setup.exe` | Installer for the desktop app |
 | `TopalEncryption.exe` | Portable desktop app, no installation |
 | `topal-cli.exe` | Command-line tool |
+| `TopalEncryption_x.y.z_android.apk` | Android app, for Android 13 or later |
 
-The builds are not code-signed, so Windows SmartScreen may warn on first launch
+The Windows builds are not code-signed, so Windows SmartScreen may warn on first launch
 (**More info → Run anyway**). The desktop app needs the WebView2 runtime, which ships with
 Windows 10 and 11.
+
+The APK is not from an app store, so Android asks you to allow installing apps from the
+browser or file manager you open it with.
 
 ## Usage
 
