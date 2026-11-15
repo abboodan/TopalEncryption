@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- English, the default. The wording follows the desktop app (gui/ui/i18n.js). -->
+<resources>
+    <string name="app_name" translatable="false">Topal Encryption</string>
+    <string name="tagline">Password-protect any file or folder</string>
+    <!-- The button offers the other language, written in that language. -->
+    <string name="other_language" translatable="false">العربية</string>
+    <string name="other_language_tag" translatable="false">ar</string>
+
+    <string name="mode_encrypt">Encrypt</string>
+    <string name="mode_decrypt">Decrypt</string>
+    <string name="mode_verify">Verify</string>
+
+    <string name="pick_encrypt">Choose files or a folder, or share them to Topal Encryption from another app.</string>
+    <string name="pick_open">Choose .topal files, or a folder that contains them.</string>
+    <string name="add_files">Add files</string>
+    <string name="add_folder">Add folder</string>
+    <string name="clear">Clear</string>
+    <string name="scanning">Scanning…</string>
+    <string name="selection_summary">%1$s · %2$s</string>
+    <string name="selection_unreadable">%s could not be read and will be left out.</string>
+    <string name="empty_encrypt">No files to encrypt in this selection.</string>
+    <string name="empty_open">No .topal files in this selection.</string>
+    <string name="verify_hint">Checks that the password is right and that every encrypted file is intact. Nothing is written.</string>
+
+    <string name="password_label">Password</string>
+    <string name="password_repeat">Repeat password</string>
+    <string name="generate">Generate</string>
+    <string name="generated_note">Write this passphrase down or save it in a password manager before you continue.</string>
+    <string name="password_mismatch">The two passwords do not match.</string>
+    <string name="strength_1">Weak</string>
+    <string name="strength_2">Fair</string>
+    <string name="strength_3">Good</string>
+    <string name="strength_4">Strong</string>
+    <string name="copy">Copy</string>
+    <string name="copied">Copied</string>
+    <string name="show">Show</string>
+    <string name="hide">Hide</string>
+
+    <string name="recovery_label">Recovery key</string>
+    <string name="use_recovery">Use the recovery key instead</string>
+    <string name="use_password">Use the password instead</string>
+    <string name="no_recovery">There is no password recovery. If you forget the password, the files cannot be opened by anyone.</string>
+    <string name="originals_kept">Your original files are kept. Nothing is deleted.</string>
+
+    <string name="output_label">Save to</string>
+    <string name="output_default" translatable="false">Download/Topal Encryption</string>
+    <string name="output_choose">Choose folder…</string>
+    <string name="output_reset">Reset</string>
+
+    <string name="start_encrypt">Encrypt %s</string>
+    <string name="start_decrypt">Decrypt %s</string>
+    <string name="start_verify">Verify %s</string>
+
+    <string name="working_encrypt">Encrypting…</string>
+    <string name="working_decrypt">Decrypting…</string>
+    <string name="working_verify">Verifying…</string>
+    <string name="preparing">Preparing key…</string>
+    <string name="cancel">Cancel</string>
+    <string name="cancelling">Cancelling…</string>
+    <string name="working_detail">%1$s / %2$s · %3$s of %4$s</string>
+    <string name="working_leave">You can leave the app: the job carries on, and its progress is in the notifications.</string>
+
+    <string name="result_all_done">All done</string>
+    <string name="result_problems">Finished with problems</string>
+    <string name="result_cancelled">Cancelled</string>
+    <string name="result_wrong_password">Wrong password</string>
+    <string name="result_wrong_recovery_key">Wrong recovery key</string>
+    <string name="done_encrypt">encrypted</string>
+    <string name="done_decrypt">decrypted</string>
+    <string name="done_verify">intact</string>
+    <string name="result_skipped">skipped</string>
+    <string name="result_failed">failed</string>
+    <string name="result_again">Done</string>
+    <string name="note_skipped">Skipped files already had an output with the same name.</string>
+    <string name="note_cancelled">Files that were not finished were left untouched.</string>
+    <string name="note_wrong">None of the files could be opened. Nothing was changed.</string>
+    <string name="note_first">Showing the first %s failures.</string>
+    <string name="saved_to">Saved to %s</string>
+    <string name="speed">%1$s in %2$s</string>
+    <string name="seconds">%s s</string>
+    <string name="minutes">%s min</string>
+
+    <string name="err_empty_password">The password cannot be empty.</string>
+    <string name="err_busy">A job is already running.</string>
+    <string name="err_invalid_recovery_key">This is not a valid recovery key. Check it for typing mistakes.</string>
+    <string name="err_wrong_password">Wrong password, or the file header is damaged</string>
+    <string name="err_wrong_recovery_key">Wrong recovery key, or the file header is damaged</string>
+    <string name="err_no_recovery_slot">This file was not encrypted with a recovery key</string>
+    <string name="err_not_topal">Not a Topal Encryption file</string>
+    <string name="err_corrupted">The file content is damaged or incomplete</string>
+    <string name="err_unsafe_path">The encrypted folder contains an unsafe path</string>
+    <string name="err_output_exists">An output with this name already exists</string>
+    <string name="err_unsupported_version">Made by a newer version of Topal Encryption</string>
+    <string name="err_invalid_kdf_params">The file asks for more memory or work than is allowed</string>
+    <string name="err_io">The file could not be read or written</string>
+    <string name="err_internal">Something went wrong inside the app</string>
+
+    <string name="channel_progress">Progress</string>
+
+    <string-array name="units">
+        <item>B</item>
+        <item>KB</item>
+        <item>MB</item>
+        <item>GB</item>
+        <item>TB</item>
+    </string-array>
+
+    <plurals name="files">
+        <item quantity="one">%s file</item>
+        <item quantity="other">%s files</item>
+    </plurals>
+    <plurals name="items">
+        <item quantity="one">%s item</item>
+        <item quantity="other">%s items</item>
+    </plurals>
+</resources>

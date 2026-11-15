@@ -2,3 +2,5 @@
 *.png binary
 *.ico binary
 *.topal binary
+*.bat text eol=crlf
+*.jar binary

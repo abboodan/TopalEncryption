@@ -1,0 +1,17 @@
+# Build outputs
+.gradle/
+.kotlin/
+build/
+*.apk
+*.aab
+
+# This machine's SDK location, and the release signing settings (see the README)
+local.properties
+keystore.properties
+*.jks
+*.keystore
+
+# Android Studio
+.idea/
+*.iml
+captures/
