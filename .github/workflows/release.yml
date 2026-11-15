@@ -110,6 +110,15 @@ jobs:
           rustup default stable
           rustup target add aarch64-linux-android x86_64-linux-android
           cargo install cargo-ndk --version 4.1.2 --locked
+      - name: Install the NDK the app asks for
+        run: |
+          ndk=$(grep -m1 -oP 'ndkVersion\s*=\s*"\K[^"]+' android/app/build.gradle.kts)
+          if [ -z "$ndk" ]; then
+            echo "::error::No ndkVersion found in android/app/build.gradle.kts"
+            exit 1
+          fi
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$ndk" > /dev/null
+          ls "$ANDROID_HOME/ndk"
       - name: Test the bridge
         run: cargo test --locked -p topal-android
       - name: Set up the signing key
