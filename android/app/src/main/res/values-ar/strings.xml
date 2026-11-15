@@ -1,0 +1,123 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Arabic, right-to-left. The wording follows the desktop app (gui/ui/i18n.js). -->
+<resources>
+    <string name="tagline">احمِ أي ملف أو مجلد بكلمة سر</string>
+    <string name="other_language" translatable="false">English</string>
+    <string name="other_language_tag" translatable="false">en</string>
+
+    <string name="mode_encrypt">تشفير</string>
+    <string name="mode_decrypt">فك التشفير</string>
+    <string name="mode_verify">فحص</string>
+
+    <string name="pick_encrypt">اختر ملفات أو مجلداً، أو شاركها إلى Topal Encryption من تطبيق آخر.</string>
+    <string name="pick_open">اختر ملفات ‎.topal‎ أو مجلداً يحتويها.</string>
+    <string name="add_files">إضافة ملفات</string>
+    <string name="add_folder">إضافة مجلد</string>
+    <string name="clear">مسح</string>
+    <string name="scanning">جارٍ الفحص…</string>
+    <string name="selection_summary">%1$s · %2$s</string>
+    <string name="selection_unreadable">تعذّرت قراءة %s وسيُستثنى.</string>
+    <string name="empty_encrypt">لا توجد ملفات للتشفير في هذا التحديد.</string>
+    <string name="empty_open">لا توجد ملفات ‎.topal‎ في هذا التحديد.</string>
+    <string name="verify_hint">يتأكد من أن كلمة السر صحيحة وأن كل ملف مشفّر سليم. لا يُكتب أي شيء.</string>
+
+    <string name="password_label">كلمة السر</string>
+    <string name="password_repeat">أعد كتابة كلمة السر</string>
+    <string name="generate">توليد</string>
+    <string name="generated_note">اكتب هذه العبارة أو احفظها في مدير كلمات السر قبل المتابعة.</string>
+    <string name="password_mismatch">كلمتا السر غير متطابقتين.</string>
+    <string name="strength_1">ضعيفة</string>
+    <string name="strength_2">مقبولة</string>
+    <string name="strength_3">جيدة</string>
+    <string name="strength_4">قوية</string>
+    <string name="copy">نسخ</string>
+    <string name="copied">تم النسخ</string>
+    <string name="show">إظهار</string>
+    <string name="hide">إخفاء</string>
+
+    <string name="recovery_label">مفتاح الاسترداد</string>
+    <string name="use_recovery">استخدم مفتاح الاسترداد</string>
+    <string name="use_password">استخدم كلمة السر</string>
+    <string name="no_recovery">لا توجد استعادة لكلمة السر. إذا نسيتها فلن يستطيع أحد فتح الملفات.</string>
+    <string name="originals_kept">ملفاتك الأصلية تبقى كما هي. لا يُحذف أي شيء.</string>
+
+    <string name="output_label">الحفظ في</string>
+    <string name="output_choose">اختيار مجلد…</string>
+    <string name="output_reset">إعادة</string>
+
+    <string name="start_encrypt">تشفير %s</string>
+    <string name="start_decrypt">فك تشفير %s</string>
+    <string name="start_verify">فحص %s</string>
+
+    <string name="working_encrypt">جارٍ التشفير…</string>
+    <string name="working_decrypt">جارٍ فك التشفير…</string>
+    <string name="working_verify">جارٍ الفحص…</string>
+    <string name="preparing">جارٍ تجهيز المفتاح…</string>
+    <string name="cancel">إلغاء</string>
+    <string name="cancelling">جارٍ الإلغاء…</string>
+    <string name="working_detail">%1$s / %2$s · %3$s من %4$s</string>
+    <string name="working_leave">يمكنك مغادرة التطبيق: العملية تستمر، وتقدّمها يظهر في الإشعارات.</string>
+
+    <string name="result_all_done">اكتمل كل شيء</string>
+    <string name="result_problems">انتهى مع مشاكل</string>
+    <string name="result_cancelled">أُلغيت العملية</string>
+    <string name="result_wrong_password">كلمة السر خاطئة</string>
+    <string name="result_wrong_recovery_key">مفتاح الاسترداد خاطئ</string>
+    <string name="done_encrypt">تم تشفيرها</string>
+    <string name="done_decrypt">تم فكها</string>
+    <string name="done_verify">سليمة</string>
+    <string name="result_skipped">تم تخطيها</string>
+    <string name="result_failed">فشلت</string>
+    <string name="result_again">تم</string>
+    <string name="note_skipped">الملفات المتخطاة كان لها ناتج بالاسم نفسه من قبل.</string>
+    <string name="note_installers">كُتبت كملفات تنصيب تطبيقات بأسماء لم تكن ظاهرة في أسماء الملفات المشفّرة: %s. لا تنصّبها إلا إذا كنت تثق بمصدر الملفات المشفّرة.</string>
+    <string name="note_cancelled">الملفات التي لم تكتمل بقيت كما هي.</string>
+    <string name="note_wrong">تعذّر فتح أي ملف. لم يتغير شيء.</string>
+    <string name="note_first">تُعرض أول %s حالة فشل.</string>
+    <string name="saved_to">حُفظت في %s</string>
+    <string name="speed">%1$s خلال %2$s</string>
+    <string name="seconds">%s ث</string>
+    <string name="minutes">%s د</string>
+
+    <string name="err_empty_password">لا يمكن أن تكون كلمة السر فارغة.</string>
+    <string name="err_busy">هناك عملية جارية.</string>
+    <string name="err_invalid_recovery_key">هذا ليس مفتاح استرداد صالحاً. تحقق من أخطاء الكتابة.</string>
+    <string name="err_wrong_password">كلمة السر خاطئة أو رأس الملف تالف</string>
+    <string name="err_wrong_recovery_key">مفتاح الاسترداد خاطئ أو رأس الملف تالف</string>
+    <string name="err_no_recovery_slot">هذا الملف لم يُشفّر مع مفتاح استرداد</string>
+    <string name="err_not_topal">ليس ملف Topal Encryption</string>
+    <string name="err_corrupted">محتوى الملف تالف أو ناقص</string>
+    <string name="err_unsafe_path">المجلد المشفّر يحتوي مساراً غير آمن</string>
+    <string name="err_output_exists">يوجد ناتج بهذا الاسم من قبل</string>
+    <string name="err_unsupported_version">أُنشئ بإصدار أحدث من Topal Encryption</string>
+    <string name="err_invalid_kdf_params">الملف يطلب ذاكرة أو عملاً أكثر من المسموح</string>
+    <string name="err_io">تعذّرت قراءة الملف أو كتابته</string>
+    <string name="err_internal">حدث خطأ داخل التطبيق</string>
+
+    <string name="channel_progress">التقدّم</string>
+
+    <string-array name="units">
+        <item>بايت</item>
+        <item>ك.ب</item>
+        <item>م.ب</item>
+        <item>غ.ب</item>
+        <item>ت.ب</item>
+    </string-array>
+
+    <plurals name="files">
+        <item quantity="zero">%s ملف</item>
+        <item quantity="one">ملف واحد</item>
+        <item quantity="two">ملفان</item>
+        <item quantity="few">%s ملفات</item>
+        <item quantity="many">%s ملف</item>
+        <item quantity="other">%s ملف</item>
+    </plurals>
+    <plurals name="items">
+        <item quantity="zero">%s عنصر</item>
+        <item quantity="one">عنصر واحد</item>
+        <item quantity="two">عنصران</item>
+        <item quantity="few">%s عناصر</item>
+        <item quantity="many">%s عنصر</item>
+        <item quantity="other">%s عنصر</item>
+    </plurals>
+</resources>

@@ -4303,6 +4303,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "topal-android"
+version = "0.2.2"
+dependencies = [
+ "jni",
+ "tempfile",
+ "topal-core",
+ "zeroize",
+]
+
+[[package]]
 name = "topal-core"
 version = "0.2.2"
 dependencies = [

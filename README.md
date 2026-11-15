@@ -33,6 +33,7 @@ Without the password, nobody can open the files. Not even you.
 - **Passphrase generator.** One click for a strong passphrase made of six common words.
 - **Explorer right-click menu.** The installer adds *Encrypt with Topal Encryption* to files and folders; double-clicking a `.topal` file opens it for decryption.
 - **English and Arabic** interface, switchable at any time.
+- **Android app** that reads and writes the same files: see [Android app](#android-app).
 - **Small.** The installer is a few megabytes. No account, no network access, no telemetry.
 
 ## Download
@@ -99,6 +100,31 @@ topal-cli passphrase
 
 Secrets are prompted for without echo. For scripts, set `TOPAL_PASSWORD`,
 `TOPAL_NEW_PASSWORD` or `TOPAL_RECOVERY_KEY` instead.
+
+## Android app
+
+`android/` holds an Android app for the same files: what the phone encrypts, the PC decrypts,
+and the other way round. The cryptography is not rewritten for Android: the app links the
+same `topal-core` Rust code as the desktop app and the CLI.
+
+- **Encrypt, Decrypt and Verify**, for files or a whole folder chosen with Android's own
+  pickers, or sent to the app with **Share** from the gallery or a file manager. Tapping a
+  `.topal` file in a file manager opens it in the app, ready to decrypt.
+- Results are saved to `Download/Topal Encryption`, or to a folder you choose. A result only
+  appears under its name once it is complete; cancelling or a damaged file leaves nothing behind.
+- Folder containers made on the PC with *Hide file names* are unpacked into a new folder,
+  never over an existing one, with the same path checks as on the PC.
+- Large files run in the background with a progress notification, and can be cancelled.
+- Passphrase generator, and opening files with a recovery key created on the PC.
+- A file decrypted to an app installer (`.apk`) under a name the encrypted file did not show
+  is pointed out in the results, like programs are on the PC.
+- The app's screen is kept out of screenshots, screen recordings and the recent apps preview.
+- English and Arabic. Needs Android 13 or later.
+- **No network permission**: the app cannot connect to anything. **Your originals are never
+  deleted.**
+
+Not in the Android app yet: changing a password, hiding file names when encrypting, and
+creating a recovery key (files encrypted on the phone have no recovery slot).
 
 ## How it works
 
@@ -242,6 +268,40 @@ npx tauri build                    # app      -> target/release/TopalEncryption.
                                    # installer -> target/release/bundle/nsis/
 ```
 
+### Android app
+
+Requirements: the Android SDK with NDK `28.2.13676358` (Android Studio installs both), a
+JDK 17 or later (Android Studio's bundled one works), and Rust with the Android targets:
+
+```
+rustup target add aarch64-linux-android x86_64-linux-android
+cargo install cargo-ndk
+```
+
+Then, with `ANDROID_HOME` pointing at the SDK (or `sdk.dir` in `android/local.properties`):
+
+```
+cd android
+./gradlew assemble        # builds the Rust library, then both APKs
+                          # debug   -> app/build/outputs/apk/debug/app-debug.apk
+                          # release -> app/build/outputs/apk/release/app-release.apk
+```
+
+Gradle runs `cargo ndk` itself, for `arm64-v8a` (phones) and `x86_64` (emulators).
+
+The release APK is signed only if `android/keystore.properties` exists. That file is not in
+the repository; it names your own keystore:
+
+```
+storeFile=C:/path/to/your-release-key.jks
+storePassword=...
+keyAlias=...
+keyPassword=...
+```
+
+Without it the release APK is left unsigned. Android only installs an update over an app
+signed with the same key, so keep the keystore and its password backed up.
+
 ### Project layout
 
 | Path | Contents |
@@ -250,6 +310,8 @@ npx tauri build                    # app      -> target/release/TopalEncryption.
 | `cli/` | `topal-cli` command-line tool |
 | `gui/src-tauri/` | Desktop app backend ([Tauri](https://tauri.app)) |
 | `gui/ui/` | Desktop app interface (plain HTML, CSS and JavaScript) |
+| `android/rust/` | `topal-android`: `topal-core` exposed to Kotlin over JNI, as stream operations |
+| `android/app/` | Android app (Kotlin, Jetpack Compose) |
 
 ## License
 
