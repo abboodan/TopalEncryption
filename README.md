@@ -111,6 +111,10 @@ Secrets are prompted for without echo. For scripts, set `TOPAL_PASSWORD`,
 and the other way round. The cryptography is not rewritten for Android: the app links the
 same `topal-core` Rust code as the desktop app and the CLI.
 
+<div align="center">
+<img src="assets/android.png" width="780" alt="Topal Encryption on Android: choosing files to encrypt, encrypting an 8 GB file, the results, and the Arabic interface">
+</div>
+
 - **Encrypt, Decrypt and Verify**, for files or a whole folder chosen with Android's own
   pickers, or sent to the app with **Share** from the gallery or a file manager. Tapping a
   `.topal` file in a file manager opens it in the app, ready to decrypt.
