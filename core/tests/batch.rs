@@ -664,3 +664,80 @@ fn a_failure_before_cancelling_is_still_reported() {
     assert_eq!(summary.failures[0].0, broken);
     assert!(matches!(summary.failures[0].1, Error::NotTopal));
 }
+
+#[test]
+fn the_summary_lists_the_outputs_that_were_written() {
+    let root = tempfile::tempdir().unwrap();
+    let dir = root.path().join("in");
+    make_tree(&dir);
+    let sealed = |rel: &str| dir.join(format!("{rel}.topal"));
+
+    // Encrypting: one encrypted file per source, in the order of the items.
+    let scan = batch::scan(Mode::Encrypt, &[dir.clone()], &Options::default());
+    let expected: Vec<PathBuf> = scan
+        .items
+        .iter()
+        .map(|item| sealed(item.source.strip_prefix(&dir).unwrap().to_str().unwrap()))
+        .collect();
+    let summary = run(&encrypt("pw"), &dir, &Options::default());
+    assert_eq!(counts(&summary), (4, 0, 0));
+    assert_eq!(summary.outputs, expected);
+    assert!(summary.outputs.iter().all(|path| path.is_file()));
+
+    // A second run skips everything and writes nothing.
+    let summary = run(&encrypt("pw"), &dir, &Options::default());
+    assert_eq!(counts(&summary), (0, 4, 0));
+    assert!(summary.outputs.is_empty());
+
+    // Modes that write no new file list nothing.
+    let summary = run(&Job::Verify(Unlock::Password("pw")), &dir, &Options::default());
+    assert_eq!(summary.done, 4);
+    assert!(summary.outputs.is_empty());
+    let summary = run(&change("pw", "pw2"), &dir, &Options::default());
+    assert_eq!(summary.done, 4);
+    assert!(summary.outputs.is_empty());
+
+    // Decrypting to another folder: the restored files, under that folder. The file
+    // that fails is not listed.
+    fs::write(sealed("notes.txt"), b"not an encrypted file").unwrap();
+    let out = root.path().join("out");
+    let options = Options { output_dir: Some(out.clone()), ..Options::default() };
+    let summary = run(&decrypt("pw2"), &dir, &options);
+    assert_eq!(counts(&summary), (3, 0, 1));
+    let mut outputs = summary.outputs.clone();
+    outputs.sort();
+    let mut expected =
+        vec![out.join("in/empty.bin"), out.join("in/nested/photo one.jpg"), out.join("in/nested/مجلد/فيديو.mp4")];
+    expected.sort();
+    assert_eq!(outputs, expected);
+}
+
+#[test]
+fn a_packed_folder_and_its_restored_folder_are_listed_as_outputs() {
+    let root = tempfile::tempdir().unwrap();
+    let folder = root.path().join("docs");
+    make_tree(&folder);
+    let options = Options { hide_names: true, delete_source: true, ..Options::default() };
+    let summary = run_paths(&encrypt("pw"), &[folder.clone()], &options);
+    assert_eq!(counts(&summary), (1, 0, 0));
+    let [packed] = &summary.outputs[..] else { panic!("{:?}", summary.outputs) };
+    assert!(packed.is_file() && packed.parent() == Some(root.path()));
+
+    let summary = run(&decrypt("pw"), root.path(), &Options::default());
+    assert_eq!(counts(&summary), (1, 0, 0));
+    assert_eq!(summary.outputs, [folder.clone()]);
+    assert!(folder.is_dir());
+}
+
+#[test]
+fn finishing_an_interrupted_deletion_writes_no_output() {
+    let dir = tempfile::tempdir().unwrap();
+    fs::write(dir.path().join("a.txt"), b"content").unwrap();
+    let summary = run(&encrypt("pw"), dir.path(), &Options::default());
+    assert_eq!(summary.outputs, [dir.path().join("a.txt.topal")]);
+    // The output is already there: only the original is removed.
+    let summary = run_paths(&encrypt("pw"), &[dir.path().join("a.txt")], &delete());
+    assert_eq!(counts(&summary), (1, 0, 0));
+    assert!(summary.outputs.is_empty());
+    assert!(!dir.path().join("a.txt").exists());
+}
