@@ -26,6 +26,10 @@ const state = {
   recoveryOn: false,
   recoveryId: null, // ID of the key in use, for the user to compare with the one they noted
   generated: false,
+  summary: null, // the last job's result, kept so the results screen follows the language
+  app: { version: "", installed: false, daily_check: false },
+  // phase: idle | checking | current | available | downloading | ready | installing
+  update: { phase: "idle", version: null, error: null, downloaded: 0, total: null },
 };
 
 /** Text for `key` in the current language, with `{name}` placeholders filled in. */
@@ -88,6 +92,8 @@ function setLanguage(lang) {
   // The button offers the other language, written in that language.
   $("language").textContent = I18N[state.lang === "en" ? "ar" : "en"].languageName;
   render();
+  renderAbout();
+  if (state.summary && !$("result").hidden) renderResult(state.summary);
 }
 
 function revealed(inputId) {
@@ -282,6 +288,14 @@ function onProgress({ bytes, total_bytes: totalBytes, files, total_files: totalF
 }
 
 function showResult(summary) {
+  state.summary = summary;
+  renderResult(summary);
+  // The job is over: the secrets have no reason to stay in the page.
+  clearSecrets();
+  show("result");
+}
+
+function renderResult(summary) {
   // Every file refusing the password is one problem, not hundreds: say so plainly.
   const allFailedWith = (code) =>
     summary.done === 0 && summary.failed > 0 && summary.failures.every((failure) => failure.code === code);
@@ -335,9 +349,23 @@ function showResult(summary) {
       return item;
     }),
   );
-  // The job is over: the secrets have no reason to stay in the page.
-  clearSecrets();
-  show("result");
+
+  // What was written, by name. Nothing for the modes that write no new file.
+  $("outputs-box").hidden = summary.outputs_total === 0;
+  $("outputs-title").textContent = t("result.outputs", { count: fmt(summary.outputs_total) });
+  $("outputs").replaceChildren(
+    ...summary.outputs.map((name) => {
+      const item = document.createElement("li");
+      const label = document.createElement("code");
+      label.textContent = plainName(name);
+      item.append(label);
+      return item;
+    }),
+  );
+  const more = summary.outputs_total > summary.outputs.length;
+  $("outputs-note").hidden = !more;
+  $("outputs-note").classList.remove("error");
+  $("outputs-note").textContent = more ? t("result.outputsFirst", { count: fmt(summary.outputs.length) }) : "";
 }
 
 function clearSecrets() {
@@ -421,6 +449,113 @@ async function createRecoveryKey() {
   await refreshRecovery();
 }
 
+// ---- About and updates ----
+
+function renderAbout() {
+  const { phase, version, error, downloaded, total } = state.update;
+  const current = state.app.version;
+  $("about-version").textContent = current;
+  $("about-description").textContent = t("about.description");
+  $("daily-check").checked = state.app.daily_check;
+
+  // Isolated so that version numbers keep their order inside right-to-left text.
+  const values = { version: `\u2068${version}\u2069`, current: `\u2068${current}\u2069` };
+  let status = "";
+  if (error) {
+    status = t(`err.${error}`);
+  } else if (phase === "checking") {
+    status = t("update.checking");
+  } else if (phase === "current") {
+    status = t("update.current");
+  } else if (phase === "available") {
+    status = t(state.app.installed ? "update.available" : "update.portable", values);
+  } else if (phase === "downloading") {
+    const percent = total ? `${Math.floor((downloaded / total) * 100)}%` : formatBytes(downloaded);
+    status = t("update.downloading", { ...values, percent: `\u2068${percent}\u2069` });
+  } else if (phase === "ready") {
+    status = t("update.ready", values);
+  } else if (phase === "installing") {
+    status = t("update.installing");
+  }
+  $("update-status").textContent = status;
+  $("update-status").hidden = status === "";
+  $("update-status").classList.toggle("error", Boolean(error));
+
+  $("update-progress").hidden = phase !== "downloading";
+  $("update-bar").style.width = total ? `${((downloaded / total) * 100).toFixed(1)}%` : "0";
+
+  const working = phase === "checking" || phase === "downloading" || phase === "installing";
+  $("update-check").disabled = working;
+  $("update-download").hidden = !(phase === "available" && state.app.installed);
+  $("update-install").hidden = phase !== "ready";
+  $("update-releases").hidden = !(phase === "available" && !state.app.installed);
+  // A new version is waiting: say so on the header button.
+  $("update-dot").hidden = !["available", "downloading", "ready"].includes(phase);
+}
+
+function setUpdate(changes) {
+  state.update = { ...state.update, error: null, ...changes };
+  renderAbout();
+}
+
+async function openAbout() {
+  state.app = await invoke("app_info");
+  renderAbout();
+  $("about-dialog").showModal();
+}
+
+/** `automatic` is the daily check: silent unless it finds a new version. */
+async function checkForUpdates(automatic) {
+  const busy = ["checking", "downloading", "ready", "installing"].includes(state.update.phase);
+  if (automatic && busy) return;
+  if (!automatic) setUpdate({ phase: "checking" });
+  try {
+    const result = await invoke("update_check", { automatic });
+    if (result.status === "available") {
+      setUpdate({ phase: "available", version: result.version });
+    } else if (result.status === "current" && !automatic) {
+      setUpdate({ phase: "current", version: null });
+    }
+  } catch (err) {
+    if (!automatic) setUpdate({ phase: "idle", error: updateError(err) });
+  }
+}
+
+/** The identifier of an update problem, as the interface words it. */
+function updateError(err) {
+  const code = String(err) === "busy" ? "update_busy" : String(err);
+  return I18N.en[`err.${code}`] ? code : "update_failed";
+}
+
+async function downloadUpdate() {
+  // A job on screen must end first; the app checks this again on its side.
+  if (!$("working").hidden) {
+    setUpdate({ error: "update_busy" });
+    return;
+  }
+  setUpdate({ phase: "downloading", downloaded: 0, total: null });
+  try {
+    await invoke("update_download");
+    setUpdate({ phase: "ready" });
+  } catch (err) {
+    setUpdate({ phase: "available", error: updateError(err) });
+  }
+}
+
+async function installUpdate() {
+  if (!$("working").hidden) {
+    setUpdate({ error: "update_busy" });
+    return;
+  }
+  setUpdate({ phase: "installing" });
+  try {
+    // Does not come back when it works: the app closes as the installer starts.
+    await invoke("update_install");
+  } catch (err) {
+    setUpdate({ phase: "available", error: updateError(err) });
+  }
+}
+
 // ---- Wiring ----
 
 for (const mode of MODES) {
@@ -489,8 +624,39 @@ $("cancel").addEventListener("click", () => {
   invoke("cancel");
 });
 $("again").addEventListener("click", reset);
+$("show-outputs").addEventListener("click", async () => {
+  try {
+    await invoke("show_outputs");
+  } catch (err) {
+    $("outputs-note").textContent = I18N.en[`err.${err}`] ? t(`err.${err}`) : String(err);
+    $("outputs-note").classList.add("error");
+    $("outputs-note").hidden = false;
+  }
+});
+
+$("open-about").addEventListener("click", openAbout);
+$("about-close").addEventListener("click", () => $("about-dialog").close());
+for (const button of document.querySelectorAll("[data-link]")) {
+  button.addEventListener("click", () => invoke("open_link", { link: button.dataset.link }));
+}
+$("update-releases").addEventListener("click", () => invoke("open_link", { link: "releases" }));
+$("update-check").addEventListener("click", () => checkForUpdates(false));
+$("update-download").addEventListener("click", downloadUpdate);
+$("update-install").addEventListener("click", installUpdate);
+$("daily-check").addEventListener("change", async () => {
+  const enabled = $("daily-check").checked;
+  try {
+    await invoke("set_daily_check", { enabled });
+    state.app.daily_check = enabled;
+    // Switched on: the first daily check is due now.
+    if (enabled) checkForUpdates(true);
+  } catch {
+    $("daily-check").checked = state.app.daily_check;
+  }
+});
+
 document.addEventListener("keydown", (event) => {
-  const idle = !$("setup").hidden && !$("recovery-dialog").open;
+  const idle = !$("setup").hidden && !$("recovery-dialog").open && !$("about-dialog").open;
   if (event.key === "Enter" && idle && !$("start").disabled) start();
 });
 
@@ -535,6 +701,11 @@ function openRequest({ mode, paths }) {
 }
 
 listen("progress", (event) => onProgress(event.payload));
+listen("update-progress", (event) => {
+  if (state.update.phase !== "downloading") return;
+  state.update = { ...state.update, ...event.payload };
+  renderAbout();
+});
 listen("open-paths", (event) => openRequest(event.payload));
 listen("tauri://drag-enter", () => $("drop").classList.add("over"));
 listen("tauri://drag-leave", () => $("drop").classList.remove("over"));
@@ -551,6 +722,14 @@ try {
 }
 setLanguage(savedLanguage);
 refreshRecovery();
+invoke("app_info").then((info) => {
+  state.app = info;
+  renderAbout();
+});
+// The daily check, when it is switched on: once now, then whenever a day has passed
+// while the app stays open. The app decides whether one is due.
+checkForUpdates(true);
+setInterval(() => checkForUpdates(true), 60 * 60 * 1000);
 invoke("launch_request").then((request) => {
   if (request) openRequest(request);
 });

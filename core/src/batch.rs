@@ -144,10 +144,16 @@ pub struct Summary {
     /// file, so `photo.jpg.topal` from someone else can produce `setup.exe`; callers
     /// should point these out.
     pub program_outputs: Vec<PathBuf>,
+    /// Every file or folder this run wrote, in the order of the items: the encrypted
+    /// files when encrypting, the restored files and folders when decrypting. Empty for
+    /// the modes that write no new file. An item that only finished a deletion left
+    /// undone by an earlier run counts as done without adding an output.
+    pub outputs: Vec<PathBuf>,
 }
 
 enum Outcome {
-    Done,
+    /// With the output that was written, if the item wrote one.
+    Done(Option<PathBuf>),
     Skipped,
 }
 
@@ -584,7 +590,7 @@ impl Runner<'_> {
                 };
                 if matches {
                     fs::remove_file(&item.source)?;
-                    return Ok(Outcome::Done);
+                    return Ok(Outcome::Done(None));
                 }
             }
             return Ok(Outcome::Skipped);
@@ -607,7 +613,7 @@ impl Runner<'_> {
         if self.options.delete_source {
             fs::remove_file(&item.source)?;
         }
-        Ok(Outcome::Done)
+        Ok(Outcome::Done(Some(dest)))
     }
 
     fn encrypt_folder(&self, item: &Item, counted: &AtomicU64) -> Result<Outcome> {
@@ -639,7 +645,7 @@ impl Runner<'_> {
             }
             let _ = fs::remove_dir(&item.source);
         }
-        Ok(Outcome::Done)
+        Ok(Outcome::Done(Some(dest)))
     }
 
     fn decrypt(&self, item: &Item, counted: &AtomicU64) -> Result<Outcome> {
@@ -694,7 +700,7 @@ impl Runner<'_> {
                 if self.options.delete_source && same_content(&mut opened.content, &dest)? {
                     drop(opened);
                     fs::remove_file(&item.source)?;
-                    return Ok(Outcome::Done);
+                    return Ok(Outcome::Done(None));
                 }
                 return Ok(Outcome::Skipped);
             }
@@ -726,13 +732,13 @@ impl Runner<'_> {
         if self.options.delete_source {
             fs::remove_file(&item.source)?;
         }
-        Ok(Outcome::Done)
+        Ok(Outcome::Done(Some(dest)))
     }
 
     fn verify(&self, item: &Item, counted: &AtomicU64) -> Result<Outcome> {
         let mut opened = self.decryptor().open(self.open_counted(&item.source, counted)?)?;
         Self::read_through(opened.kind, &mut opened.content)?;
-        Ok(Outcome::Done)
+        Ok(Outcome::Done(None))
     }
 
     /// Only the header is rewritten, in place. The old header is first saved beside the
@@ -768,7 +774,7 @@ impl Runner<'_> {
         file.write_all(&header)?;
         file.sync_all()?;
         let _ = fs::remove_file(&backup);
-        Ok(Outcome::Done)
+        Ok(Outcome::Done(None))
     }
 
     /// The new header for `file` made from a saved one, but only if the saved header
@@ -872,7 +878,10 @@ pub fn run(
     let mut summary = Summary { cancelled, program_outputs, ..Summary::default() };
     for (item, result) in items.iter().zip(results) {
         match result {
-            Some(Ok(Outcome::Done)) => summary.done += 1,
+            Some(Ok(Outcome::Done(output))) => {
+                summary.done += 1;
+                summary.outputs.extend(output);
+            }
             Some(Ok(Outcome::Skipped)) => summary.skipped += 1,
             // A file abandoned mid-way by cancelling is not a failure. Anything else
             // that went wrong is still reported, cancelled or not.

@@ -25,8 +25,21 @@
       "csp": "default-src 'self'; style-src 'self'; img-src 'self' data:"
     }
   },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDlFQkNGRkVFRjlGODNDRjQKUldUMFBQajU3dis4bmxjTXBQYWZzZFczQVpseGxOQ28zVVQ5UCsyNk02bFBLNGdaeEZwU2JlT3MK",
+      "endpoints": [
+        "https://github.com/abboodan/TopalEncryption/releases/latest/download/latest.json"
+      ],
+      "requireSignedVersion": true,
+      "windows": {
+        "installMode": "passive"
+      }
+    }
+  },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": [
       "nsis"
     ],
