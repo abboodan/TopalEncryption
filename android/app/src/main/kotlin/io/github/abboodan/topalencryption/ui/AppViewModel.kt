@@ -173,10 +173,9 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             return if (mode != Mode.ENCRYPT && useRecovery) recoveryKey.isNotBlank() else password.isNotEmpty()
         }
 
-    /** Checks the form and starts the job. Returns `false`, with [error] set, if it cannot. */
-    fun start(): Boolean {
-        val items = scan?.items.orEmpty()
-        if (items.isEmpty()) return false
+    /** Checks the form. Returns `false`, with [error] set, if the job cannot start as it is. */
+    fun check(): Boolean {
+        if (scan?.items.isNullOrEmpty()) return false
         val byKey = mode != Mode.ENCRYPT && useRecovery
         error = when {
             byKey && !Native.isRecoveryKey(recoveryKey) -> R.string.err_invalid_recovery_key
@@ -184,7 +183,14 @@ class AppViewModel(private val app: Application) : AndroidViewModel(app) {
             mode == Mode.ENCRYPT && password != repeat -> R.string.password_mismatch
             else -> null
         }
-        if (error != null) return false
+        return error == null
+    }
+
+    /** Checks the form and starts the job. Returns `false`, with [error] set, if it cannot. */
+    fun start(): Boolean {
+        if (!check()) return false
+        val items = scan?.items.orEmpty()
+        val byKey = mode != Mode.ENCRYPT && useRecovery
         val tree = outputTree
         val target = when {
             mode == Mode.VERIFY -> null

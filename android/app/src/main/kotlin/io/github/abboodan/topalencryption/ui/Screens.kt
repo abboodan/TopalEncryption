@@ -262,10 +262,13 @@ private fun Setup(model: AppViewModel) {
         )
     }
     PrimaryButton(label, enabled = model.ready, tag = "start") {
-        if (needsNotificationQuestion(context)) {
-            askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            model.start()
+        // Mistakes in the form are shown first; the question comes only when the job can start.
+        if (model.check()) {
+            if (needsNotificationQuestion(context)) {
+                askNotifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+            } else {
+                model.start()
+            }
         }
     }
 

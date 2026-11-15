@@ -36,7 +36,6 @@ android {
         targetSdk = 36
         versionCode = versionParts[0] * 10000 + versionParts[1] * 100 + versionParts[2]
         versionName = workspaceVersion
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
@@ -159,8 +158,4 @@ dependencies {
     implementation(libs.lifecycle.viewmodel.compose)
     implementation(libs.lifecycle.runtime.compose)
     implementation(libs.coroutines.android)
-
-    androidTestImplementation(libs.junit)
-    androidTestImplementation(libs.test.runner)
-    androidTestImplementation(libs.test.ext.junit)
 }
